@@ -80,11 +80,11 @@ export function PrivateEventDebug() {
                 <p className="text-xs text-muted-foreground">No private events found</p>
               ) : (
                 <div className="space-y-2">
-                  {privateEvents.map((event) => (
-                    <div key={event.id} className="p-2 bg-purple-50 rounded text-xs">
-                      <p className="font-medium">{event.tags.find(t => t[0] === 'title')?.[1] || 'Untitled'}</p>
-                      <p className="text-muted-foreground">Kind: {event.kind}</p>
-                      <p className="text-muted-foreground">ID: {event.id.substring(0, 8)}...</p>
+                  {privateEvents.map((event, index) => (
+                    <div key={event.id || `event-${index}`} className="p-2 bg-purple-50 rounded text-xs">
+                      <p className="font-medium">{event.tags?.find(t => t[0] === 'title')?.[1] || 'Untitled'}</p>
+                      <p className="text-muted-foreground">Kind: {event.kind || 'Unknown'}</p>
+                      <p className="text-muted-foreground">ID: {event.id ? event.id.substring(0, 8) + '...' : 'No ID'}</p>
                     </div>
                   ))}
                 </div>

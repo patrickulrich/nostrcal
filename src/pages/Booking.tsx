@@ -24,8 +24,9 @@ interface AvailabilityTemplate {
   title: string;
   description?: string;
   duration: number; // minutes
-  buffer: number; // minutes
   interval?: number; // minutes - gap between slot starts
+  bufferBefore?: number; // minutes
+  bufferAfter?: number; // minutes
   timezone: string;
   location?: string;
   availability: {
@@ -35,7 +36,8 @@ interface AvailabilityTemplate {
   calendarRef?: string;
   amount?: number; // satoshis for paid bookings
   minNotice?: number; // minutes
-  maxAdvance?: number; // days
+  maxAdvance?: number; // minutes
+  maxAdvanceBusiness?: boolean;
 }
 
 interface TimeSlot {
@@ -104,11 +106,7 @@ export default function Booking() {
         }
 
         const event = events[0];
-        console.log('📅 Raw availability template event:', event);
-        console.log('📅 Event tags:', event.tags);
-        
         const templateData = parseAvailabilityTemplate(event);
-        console.log('📅 Parsed template data:', templateData);
         setTemplate(templateData);
 
         // Fetch busy times (availability blocks)
@@ -123,8 +121,22 @@ export default function Booking() {
           const start = busyEvent.tags.find(t => t[0] === 'start')?.[1];
           const end = busyEvent.tags.find(t => t[0] === 'end')?.[1];
           if (start && end) {
-            const startDate = new Date(parseInt(start) * 1000);
-            const endDate = new Date(parseInt(end) * 1000);
+            const startTimestamp = parseInt(start);
+            const endTimestamp = parseInt(end);
+            
+            // Validate timestamps
+            if (isNaN(startTimestamp) || isNaN(endTimestamp)) {
+              return;
+            }
+            
+            const startDate = new Date(startTimestamp * 1000);
+            const endDate = new Date(endTimestamp * 1000);
+            
+            // Validate Date objects
+            if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+              return;
+            }
+            
             const dateKey = format(startDate, 'yyyy-MM-dd');
             
             if (!busyMap.has(dateKey)) {
@@ -148,26 +160,20 @@ export default function Booking() {
 
   // Calculate available slots when date is selected
   useEffect(() => {
-    console.log('🔍 useEffect - Calculate available slots triggered');
-    console.log('🔍 useEffect - selectedDate:', selectedDate);
-    console.log('🔍 useEffect - template:', template);
-    console.log('🔍 useEffect - busyTimes:', busyTimes);
-
     if (!selectedDate || !template) {
-      console.log('🔍 useEffect - Missing selectedDate or template, clearing slots');
+      setAvailableSlots([]);
+      return;
+    }
+
+    if (!template.availability || Object.keys(template.availability).length === 0) {
       setAvailableSlots([]);
       return;
     }
 
     const dayOfWeek = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][selectedDate.getDay()];
-    console.log('🔍 useEffect - Day of week:', dayOfWeek);
-    console.log('🔍 useEffect - Template availability:', template.availability);
-    console.log('🔍 useEffect - Available keys:', Object.keys(template.availability));
     const dayAvailability = template.availability[dayOfWeek] || [];
-    console.log('🔍 useEffect - Day availability:', dayAvailability);
     
     if (dayAvailability.length === 0) {
-      console.log('🔍 useEffect - No availability for this day, clearing slots');
       setAvailableSlots([]);
       return;
     }
@@ -175,26 +181,34 @@ export default function Booking() {
     const slots: TimeSlot[] = [];
     const dateKey = format(selectedDate, 'yyyy-MM-dd');
     const dayBusyTimes = busyTimes.get(dateKey) || [];
-    console.log('🔍 useEffect - Date key:', dateKey);
-    console.log('🔍 useEffect - Day busy times:', dayBusyTimes);
 
-    dayAvailability.forEach((block, blockIndex) => {
-      console.log(`🔍 useEffect - Processing block ${blockIndex}:`, block);
-      const [startHour, startMin] = block.start.split(':').map(Number);
-      const [endHour, endMin] = block.end.split(':').map(Number);
-      console.log(`🔍 useEffect - Block ${blockIndex} parsed times: ${startHour}:${startMin} - ${endHour}:${endMin}`);
+    dayAvailability.forEach((block) => {
+      // Validate time format and parse safely
+      const timeRegex = /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/;
+      const startMatch = block.start.match(timeRegex);
+      const endMatch = block.end.match(timeRegex);
       
-      let currentTime = setMinutes(setHours(selectedDate, startHour), startMin);
-      const blockEnd = setMinutes(setHours(selectedDate, endHour), endMin);
-      console.log(`🔍 useEffect - Block ${blockIndex} actual times: ${currentTime} - ${blockEnd}`);
-      console.log(`🔍 useEffect - Selected date timezone offset: ${selectedDate.getTimezoneOffset()}`);
-      console.log(`🔍 useEffect - Current time timezone offset: ${currentTime.getTimezoneOffset()}`);
-      console.log(`🔍 useEffect - Template timezone: ${template.timezone}`);
+      if (!startMatch || !endMatch) {
+        return;
+      }
+      
+      const startHour = parseInt(startMatch[1]);
+      const startMin = parseInt(startMatch[2]);
+      const endHour = parseInt(endMatch[1]);
+      const endMin = parseInt(endMatch[2]);
+      
+      // Validate parsed values are in valid ranges
+      if (startHour < 0 || startHour > 23 || startMin < 0 || startMin > 59 ||
+          endHour < 0 || endHour > 23 || endMin < 0 || endMin > 59) {
+        return;
+      }
+      
+      try {
+        let currentTime = setMinutes(setHours(selectedDate, startHour), startMin);
+        const blockEnd = setMinutes(setHours(selectedDate, endHour), endMin);
 
-      let slotIndex = 0;
       while (currentTime < blockEnd) {
         const slotEnd = new Date(currentTime.getTime() + template.duration * 60000);
-        console.log(`🔍 useEffect - Block ${blockIndex}, Slot ${slotIndex}: ${currentTime} - ${slotEnd}`);
         
         if (slotEnd <= blockEnd) {
           // Check if slot conflicts with busy times
@@ -209,26 +223,23 @@ export default function Booking() {
           const minNoticeTime = template.minNotice ? 
             new Date(now.getTime() + template.minNotice * 60000) : now;
           const meetsMinNotice = currentTime >= minNoticeTime;
-          
-          console.log(`🔍 useEffect - Block ${blockIndex}, Slot ${slotIndex} - isBusy: ${isBusy}, meetsMinNotice: ${meetsMinNotice}`);
 
           slots.push({
             start: currentTime,
             end: slotEnd,
             available: !isBusy && meetsMinNotice
           });
-        } else {
-          console.log(`🔍 useEffect - Block ${blockIndex}, Slot ${slotIndex} - Slot end exceeds block end, skipping`);
         }
 
         // Move to next slot start (use interval or duration as fallback)
         const intervalMinutes = template.interval || template.duration;
         currentTime = new Date(currentTime.getTime() + intervalMinutes * 60000);
-        slotIndex++;
+      }
+      } catch {
+        return;
       }
     });
 
-    console.log('🔍 useEffect - Final slots generated:', slots);
     setAvailableSlots(slots);
   }, [selectedDate, template, busyTimes]);
 
@@ -429,28 +440,41 @@ export default function Booking() {
   };
 
   const isDateAvailable = (date: Date): boolean => {
-    console.log('🔍 isDateAvailable - Checking date:', date);
     if (!template) {
-      console.log('🔍 isDateAvailable - No template, returning false');
       return false;
     }
     
     const dayOfWeek = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][date.getDay()];
     const hasAvailability = (template.availability[dayOfWeek] || []).length > 0;
-    console.log(`🔍 isDateAvailable - Day: ${dayOfWeek}, hasAvailability: ${hasAvailability}`);
-    console.log(`🔍 isDateAvailable - Template availability for ${dayOfWeek}:`, template.availability[dayOfWeek]);
     
     // Check max advance
     if (template.maxAdvance) {
-      const maxDate = addDays(new Date(), template.maxAdvance / (24 * 60));
-      console.log(`🔍 isDateAvailable - Max advance check: date=${date}, maxDate=${maxDate}`);
+      const now = new Date();
+      let maxDate: Date;
+      
+      if (template.maxAdvanceBusiness) {
+        // Count business days only
+        const businessDays = Math.floor(template.maxAdvance / (24 * 60));
+        maxDate = new Date(now);
+        let addedDays = 0;
+        while (addedDays < businessDays) {
+          maxDate = addDays(maxDate, 1);
+          // Skip weekends (Saturday = 6, Sunday = 0)
+          if (maxDate.getDay() !== 0 && maxDate.getDay() !== 6) {
+            addedDays++;
+          }
+        }
+      } else {
+        // Calendar days
+        const totalDays = template.maxAdvance / (24 * 60);
+        maxDate = addDays(now, totalDays);
+      }
+      
       if (date > maxDate) {
-        console.log('🔍 isDateAvailable - Date exceeds max advance, returning false');
         return false;
       }
     }
     
-    console.log(`🔍 isDateAvailable - Final result: ${hasAvailability}`);
     return hasAvailability;
   };
 

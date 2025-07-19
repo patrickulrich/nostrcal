@@ -28,6 +28,7 @@ import { format, isAfter, isBefore, isToday, addDays } from 'date-fns';
 import { genUserName } from '@/lib/genUserName';
 import { useAuthor } from '@/hooks/useAuthor';
 import { useCreateRSVP, useRSVPStatus, RSVPStatus } from '@/hooks/useRSVP';
+import { CommentsSection } from '@/components/comments/CommentsSection';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 interface CalendarEvent {
@@ -408,7 +409,7 @@ export default function Events() {
 
         {/* Event Detail Modal */}
         <Dialog open={!!selectedEvent} onOpenChange={() => setSelectedEvent(null)}>
-          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             {selectedEvent && (
               <>
                 <DialogHeader>
@@ -515,6 +516,17 @@ export default function Events() {
                         )}
                       </div>
                     )}
+
+                    {/* Comments Section */}
+                    <div className="pt-4 border-t">
+                      <CommentsSection 
+                        root={selectedEvent}
+                        title="Discussion"
+                        emptyStateMessage="No comments yet"
+                        emptyStateSubtitle="Start the conversation about this event!"
+                        limit={100}
+                      />
+                    </div>
                   </div>
                 </div>
               </>
