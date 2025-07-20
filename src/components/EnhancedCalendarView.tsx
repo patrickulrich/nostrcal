@@ -76,8 +76,8 @@ function EventModal({ event, onClose, onEdit, onDelete }: EventModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <Card className="max-w-md w-full mx-4">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <Card className="max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col sm:mx-4">
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg">{event.title || 'Untitled Event'}</CardTitle>
@@ -115,7 +115,7 @@ function EventModal({ event, onClose, onEdit, onDelete }: EventModalProps) {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 overflow-y-auto flex-1 min-h-0 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
           <div className="flex items-center gap-2">
             <Calendar className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm">
@@ -198,8 +198,17 @@ function EventModal({ event, onClose, onEdit, onDelete }: EventModalProps) {
 
           <div className="flex items-center gap-2 pt-2">
             <Badge variant="outline">
-              {event.kind === 31922 ? 'All Day' : 'Timed Event'}
+              {event.kind === 31922 ? 'All Day' : event.kind === 31925 ? 'RSVP' : 'Timed Event'}
             </Badge>
+            {event.kind === 31925 && event.rsvpStatus && (
+              <Badge variant="outline" className={`${
+                event.rsvpStatus === 'accepted' ? 'bg-green-100 text-green-800' :
+                event.rsvpStatus === 'declined' ? 'bg-red-100 text-red-800' :
+                'bg-yellow-100 text-yellow-800'
+              }`}>
+                {event.rsvpStatus.charAt(0).toUpperCase() + event.rsvpStatus.slice(1)}
+              </Badge>
+            )}
             {event.timezone && (
               <Badge variant="outline">{event.timezone}</Badge>
             )}
@@ -223,8 +232,8 @@ function EventModal({ event, onClose, onEdit, onDelete }: EventModalProps) {
 
       {/* Delete confirmation dialog */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <Card className="max-w-sm w-full mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <Card className="max-w-sm w-full">
             <CardHeader>
               <CardTitle className="text-lg">Delete Event</CardTitle>
             </CardHeader>
@@ -557,7 +566,7 @@ function WeekView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => void
                       >
                         <div className="font-medium truncate">
                           {spanInfo.continuedFrom && '← '}
-                          {event.title || 'Untitled Event'}
+                          {event.kind === 31925 ? '✓ ' : ''}{event.title || 'Untitled Event'}
                           {spanInfo.continues && ' →'}
                         </div>
                         {event.location && position.height > 40 && (
@@ -687,7 +696,7 @@ function MonthView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => voi
                       onClick={() => setSelectedEvent(event)}
                     >
                       {spanInfo.continuedFrom && '← '}
-                      {event.title || 'Untitled Event'}
+                      {event.kind === 31925 ? '✓ ' : ''}{event.title || 'Untitled Event'}
                       {spanInfo.continues && ' →'}
                     </div>
                   );
@@ -812,7 +821,7 @@ function DayView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => void 
                 >
                   <div className="font-medium truncate">
                     {spanInfo.continuedFrom && '← '}
-                    {event.title || 'Untitled Event'}
+                    {event.kind === 31925 ? '✓ ' : ''}{event.title || 'Untitled Event'}
                     {spanInfo.continues && ' →'}
                   </div>
                   {event.location && position.height > 50 && (
@@ -845,45 +854,56 @@ export default function EnhancedCalendarView() {
   // Edit modal state
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [eventToEdit, setEventToEdit] = useState<CalendarEvent | null>(null);
+  
+  // Hash-based change detection to prevent infinite re-renders
+  const [lastEventHash, setLastEventHash] = useState('');
 
+  // Create a hash of events to detect real changes
+  const eventsHash = React.useMemo(() => {
+    if (!calendarEvents) return '';
+    return calendarEvents.map(e => `${e.id}-${e.start || 'no-time'}-${e.source || 'no-source'}`).join('|');
+  }, [calendarEvents]);
+
+  // Memoize event categorization to avoid repeated filtering
+  const categorizedEvents = React.useMemo(() => {
+    if (!calendarEvents) return null;
+
+    // Separate private and public events by source
+    const publicEvents = calendarEvents.filter(event => event.source !== 'private');
+    const privateEvents = calendarEvents.filter(event => event.source === 'private');
+    
+    return {
+      // Public events
+      dayEvents: publicEvents.filter(event => event.kind === 31922),
+      timeEvents: publicEvents.filter(event => event.kind === 31923),
+      availabilityTemplates: publicEvents.filter(event => event.kind === 31926),
+      availabilityBlocks: publicEvents.filter(event => event.kind === 31927),
+
+      // Private events
+      privateDayEvents: privateEvents.filter(event => event.kind === 31922),
+      privateTimeEvents: privateEvents.filter(event => event.kind === 31923),
+      privateRsvps: privateEvents.filter(event => event.kind === 31925),
+
+      // All RSVP events (kind 31925) regardless of time inheritance
+      allRsvpKind31925: calendarEvents.filter(event => event.kind === 31925)
+    };
+  }, [calendarEvents]);
 
   // Update events context when data loads
   const eventsContext = useEvents();
   useEffect(() => {
-    if (calendarEvents) {
-      // Separate private and public events by source
-      const publicEvents = calendarEvents.filter(event => event.source !== 'private');
-      const privateEvents = calendarEvents.filter(event => event.source === 'private');
+    if (categorizedEvents && eventsHash !== lastEventHash) {
+      setLastEventHash(eventsHash);
       
-      // Public events
-      const dayEvents = publicEvents.filter(event => event.kind === 31922);
-      const timeEvents = publicEvents.filter(event => event.kind === 31923);
-      // const calendarCollections = publicEvents.filter(event => event.kind === 31924);
-      const rsvpEvents = publicEvents.filter(event => event.kind === 31925);
-      const availabilityTemplates = publicEvents.filter(event => event.kind === 31926);
-      const availabilityBlocks = publicEvents.filter(event => event.kind === 31927);
-
-      // Private events
-      const privateDayEvents = privateEvents.filter(event => event.kind === 31922);
-      const privateTimeEvents = privateEvents.filter(event => event.kind === 31923);
-      // const privateCalendarCollections = privateEvents.filter(event => event.kind === 31924);
-      const privateRsvps = privateEvents.filter(event => event.kind === 31925);
-      // const privateAvailabilityTemplates = privateEvents.filter(event => event.kind === 31926);
-      // const privateAvailabilityBlocks = privateEvents.filter(event => event.kind === 31927);
-
-
-      eventsContext.setDayEvents(dayEvents);
-      eventsContext.setTimeEvents(timeEvents);
-      eventsContext.setRsvpEvents(rsvpEvents);
-      eventsContext.setBookingBlocks([...availabilityBlocks, ...availabilityTemplates]); // Combine templates and blocks
-      eventsContext.setPrivateDayEvents(privateDayEvents);
-      eventsContext.setPrivateTimeEvents(privateTimeEvents);
-      eventsContext.setPrivateRsvps(privateRsvps);
-    } else if (user && !isLoading) {
-      // Add some mock events for testing when no events are loaded
-      eventsContext.addMockEvents();
+      eventsContext.setDayEvents(categorizedEvents.dayEvents);
+      eventsContext.setTimeEvents(categorizedEvents.timeEvents); // Time events only, no RSVPs
+      eventsContext.setRsvpEvents(categorizedEvents.allRsvpKind31925); // RSVPs go in their own category
+      eventsContext.setBookingBlocks([...categorizedEvents.availabilityBlocks, ...categorizedEvents.availabilityTemplates]); // Combine templates and blocks
+      eventsContext.setPrivateDayEvents(categorizedEvents.privateDayEvents);
+      eventsContext.setPrivateTimeEvents(categorizedEvents.privateTimeEvents);
+      eventsContext.setPrivateRsvps(categorizedEvents.privateRsvps);
     }
-  }, [calendarEvents, eventsContext, user, isLoading]);
+  }, [eventsHash, categorizedEvents, eventsContext, lastEventHash]);
 
   // Edit modal handlers
   const handleOpenEditModal = (event: CalendarEvent) => {

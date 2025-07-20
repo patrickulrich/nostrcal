@@ -27,6 +27,7 @@ export function usePrivateCalendarEvents() {
   const { config: _config } = useAppContext();
   const [privateEvents, setPrivateEvents] = useState<Rumor[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [lastUserPubkey, setLastUserPubkey] = useState<string | null>(null);
 
   // Memoize read relays to prevent infinite re-renders
   const readRelays = useMemo(() => {
@@ -37,9 +38,15 @@ export function usePrivateCalendarEvents() {
   useEffect(() => {
     if (!user?.pubkey || !user?.signer) {
       setPrivateEvents([]);
+      setLastUserPubkey(null);
       return;
     }
 
+    // Only clear events when user changes
+    if (lastUserPubkey !== user.pubkey) {
+      setPrivateEvents([]);
+      setLastUserPubkey(user.pubkey);
+    }
 
     let isMounted = true;
     const controller = new AbortController();
@@ -47,12 +54,11 @@ export function usePrivateCalendarEvents() {
     const startStreaming = async () => {
       try {
         setIsProcessing(true);
-        setPrivateEvents([]); // Clear existing events
 
         const filter = {
           kinds: [1059], // Gift wrapped events
           "#p": [user.pubkey], // Tagged for this user
-          limit: 200
+          limit: 100 // Reduced limit for faster initial load
         };
 
         // Use memoized read relays from user's 10050 preferences
@@ -73,7 +79,7 @@ export function usePrivateCalendarEvents() {
           if (isMounted) {
             setIsProcessing(false);
           }
-        }, 5000); // 5 second timeout
+        }, 2000); // 2 second timeout - faster initial load
 
         // ✅ CORRECT: Handle relay messages properly
         for await (const msg of subscription) {
@@ -157,7 +163,7 @@ export function usePrivateCalendarEvents() {
       isMounted = false;
       controller.abort();
     };
-  }, [user?.pubkey, user?.signer, nostr, readRelays]);
+  }, [user?.pubkey, user?.signer, nostr, readRelays, lastUserPubkey]);
 
   // Wrap in a query-like interface for compatibility
   const query = {

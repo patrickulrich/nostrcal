@@ -3,40 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useNostr } from '@nostrify/react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { usePrivateCalendarEvents } from '@/hooks/usePrivateCalendarEvents';
+import { useRSVPReferencedEvents } from '@/hooks/useRSVPReferencedEvents';
 import { NostrEvent } from '@nostrify/nostrify';
 import { Rumor } from '@/utils/nip59';
-
-// Calendar event types based on NIP-52
-interface CalendarEvent {
-  id: string;
-  kind: number;
-  pubkey: string;
-  created_at: number;
-  tags: string[][];
-  content: string;
-  sig: string;
-  
-  // Parsed calendar data
-  dTag?: string;
-  title?: string;
-  summary?: string;
-  image?: string;
-  start?: string;
-  end?: string;
-  location?: string;
-  geohash?: string;
-  description?: string;
-  timezone?: string;
-  endTimezone?: string;
-  hashtags?: string[];
-  references?: string[];
-  participants?: string[];
-  
-  // UI properties
-  color?: string;
-  source?: string;
-  rawEvent?: NostrEvent;
-}
+import { CalendarEvent } from '@/contexts/EventsContextTypes';
 
 // Transform NostrEvent or Rumor to CalendarEvent
 function transformEventForCalendar(event: NostrEvent | Rumor): CalendarEvent {
@@ -70,6 +40,28 @@ function transformEventForCalendar(event: NostrEvent | Rumor): CalendarEvent {
     .filter(tag => tag[0] === 'r')
     .map(tag => tag[1]);
 
+  // RSVP-specific handling
+  let rsvpData: {
+    needsTimeFromReference?: boolean;
+    referenceCoordinate?: string;
+    rsvpStatus?: string;
+  } = {};
+
+  // Special handling for RSVP events (kind 31925)
+  if (event.kind === 31925) {
+    const status = event.tags.find(tag => tag[0] === 'status')?.[1];
+    const coordinate = event.tags.find(tag => tag[0] === 'a')?.[1];
+    
+    const eventInfo = coordinate ? coordinate.split(':')[2] || 'Event' : 'Event';
+    title = title || `RSVP: ${eventInfo} (${status || 'pending'})`;
+
+    rsvpData = {
+      needsTimeFromReference: true,
+      referenceCoordinate: coordinate,
+      rsvpStatus: status
+    };
+  }
+
   return {
     id: event.id,
     kind: event.kind,
@@ -92,6 +84,7 @@ function transformEventForCalendar(event: NostrEvent | Rumor): CalendarEvent {
     hashtags,
     references,
     participants,
+    ...rsvpData,
     rawEvent: 'sig' in event ? event : undefined
   };
 }
@@ -198,13 +191,13 @@ export function useCalendarEvents() {
           {
             kinds: [31922, 31923, 31924, 31925, 31926, 31927],
             authors: [user.pubkey],
-            limit: 200
+            limit: 100 // Reduced for faster initial load
           },
           // Events where the user is a participant  
           {
             kinds: [31922, 31923, 31924, 31925, 31926, 31927],
             "#p": [user.pubkey],
-            limit: 200
+            limit: 100 // Reduced for faster initial load
           }
         ];
 
@@ -274,7 +267,7 @@ export function useCalendarEvents() {
           if (isMounted) {
             setIsLoading(false);
           }
-        }, 3000); // 3 second timeout instead of 5
+        }, 2000); // 2 second timeout for faster perceived load
         
         // Just start all streams in parallel - they'll update state as events arrive
         streamPromises.forEach(promise => {
@@ -303,31 +296,85 @@ export function useCalendarEvents() {
     };
   }, [user?.pubkey, nostr]);
 
-  // Combine public and private events
+  // Get RSVP referenced events (only pass public events since privateEvents are Rumor type)
+  const { data: rsvpReferencedEvents, isLoading: isRSVPLoading } = useRSVPReferencedEvents(publicEvents);
+
+  // Memoize validation results to avoid repeated filtering
+  const validEvents = useMemo(() => ({
+    public: publicEvents.filter(validateCalendarEvent),
+    private: privateEvents.filter(validateCalendarEvent),
+    referenced: rsvpReferencedEvents || []
+  }), [publicEvents, privateEvents, rsvpReferencedEvents]);
+
+  // Memoize transformed events to avoid repeated transformations
+  const transformedEvents = useMemo(() => ({
+    public: validEvents.public.map(transformEventForCalendar),
+    private: validEvents.private.map(event => ({
+      ...transformEventForCalendar(event),
+      source: 'private'
+    })),
+    referenced: validEvents.referenced.map(event => ({
+      ...transformEventForCalendar(event),
+      source: 'referenced'
+    }))
+  }), [validEvents]);
+
+  // Memoize coordinate map for RSVP lookups
+  const eventByCoordinate = useMemo(() => {
+    const map = new Map<string, CalendarEvent>();
+    
+    [...transformedEvents.public, ...transformedEvents.private, ...transformedEvents.referenced].forEach(event => {
+      if (event.dTag && event.pubkey) {
+        const coordinate = `${event.kind}:${event.pubkey}:${event.dTag}`;
+        map.set(coordinate, event);
+      }
+    });
+    
+    return map;
+  }, [transformedEvents]);
+
+  // Combine public and private events with RSVP time inheritance
   const allEvents = useMemo(() => {
+    // Process RSVP events and inherit full details (only for events that need it)
+    const processedEvents = [...transformedEvents.public, ...transformedEvents.private].map(event => {
+      if (event.kind === 31925 && event.needsTimeFromReference && event.referenceCoordinate) {
+        const referencedEvent = eventByCoordinate.get(event.referenceCoordinate);
+        if (referencedEvent && referencedEvent.start) {
+          return {
+            ...event, // Keep all original RSVP fields
+            // Import full details from referenced event
+            start: referencedEvent.start,
+            end: referencedEvent.end,
+            timezone: referencedEvent.timezone,
+            endTimezone: referencedEvent.endTimezone,
+            location: referencedEvent.location,
+            description: referencedEvent.description,
+            summary: referencedEvent.summary,
+            image: referencedEvent.image,
+            geohash: referencedEvent.geohash,
+            hashtags: referencedEvent.hashtags,
+            references: referencedEvent.references,
+            participants: referencedEvent.participants,
+            // Update title to show referenced event title with RSVP status
+            title: `✓ ${referencedEvent.title || 'Event'} (${event.rsvpStatus || 'pending'})`,
+            // Ensure RSVP-specific fields are preserved
+            kind: 31925, // Explicitly maintain as RSVP
+            source: event.pubkey === user?.pubkey ? 'rsvp-own' : 'rsvp'
+          };
+        }
+      }
+      return event;
+    });
 
-    const validPublicEvents = publicEvents.filter(validateCalendarEvent);
-    const validPrivateEvents = privateEvents.filter(validateCalendarEvent);
-
-
-    const combined = [
-      ...validPublicEvents.map(transformEventForCalendar),
-      ...validPrivateEvents.map(event => ({
-        ...transformEventForCalendar(event),
-        source: 'private'
-      }))
-    ];
-
-
-    return combined.sort((a, b) => b.created_at - a.created_at);
-  }, [publicEvents, privateEvents]);
+    return processedEvents.sort((a, b) => b.created_at - a.created_at);
+  }, [transformedEvents, eventByCoordinate, user?.pubkey]);
 
   return {
     data: allEvents,
-    isLoading,
+    isLoading: isLoading || isRSVPLoading, // Wait for both to complete
     error: null,
     isError: false,
-    isSuccess: !isLoading
+    isSuccess: !isLoading && !isRSVPLoading
   };
 }
 

@@ -25,6 +25,11 @@ export interface CalendarEvent {
   references?: string[];
   participants?: string[];
   
+  // RSVP-specific properties
+  needsTimeFromReference?: boolean;
+  referenceCoordinate?: string;
+  rsvpStatus?: string;
+  
   // UI properties
   color?: string;
   source?: string;
