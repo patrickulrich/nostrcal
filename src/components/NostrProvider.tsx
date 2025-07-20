@@ -28,7 +28,6 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
   // Helper function to get current user from logins
   const getCurrentUser = () => {
     if (logins.length === 0) {
-      console.log('[NostrProvider] No logins available for authentication');
       return null;
     }
     
@@ -92,21 +91,14 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
         // Add authentication if enabled and user is logged in
         if (config.enableAuth) {
           relayOptions.auth = async (challenge: string) => {
-            try {
-              const currentUser = getCurrentUser();
-              if (!currentUser?.signer) {
-                console.warn(`[NostrProvider] Authentication skipped for ${url}: no user signer available`);
-                throw new Error('No user signer available');
-              }
-              
-              const normalizedUrl = normalizeRelayUrl(url);
-              const authEvent = await createAuthEvent(challenge, normalizedUrl, currentUser.signer);
-              return authEvent;
-            } catch (error) {
-              console.error(`[NostrProvider] Authentication failed for ${url}:`, error);
-              console.error(`[NostrProvider] This may prevent access to private events on ${url}`);
-              throw error;
+            const currentUser = getCurrentUser();
+            if (!currentUser?.signer) {
+              throw new Error('No user signer available');
             }
+            
+            const normalizedUrl = normalizeRelayUrl(url);
+            const authEvent = await createAuthEvent(challenge, normalizedUrl, currentUser.signer);
+            return authEvent;
           };
         }
         

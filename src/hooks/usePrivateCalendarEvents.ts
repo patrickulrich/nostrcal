@@ -3,7 +3,7 @@ import { useNostr } from '@nostrify/react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useRelayPreferences } from '@/hooks/useRelayPreferences';
 import { useAppContext } from '@/hooks/useAppContext';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   unwrapPrivateEventWithSigner,
   createGiftWrapsForRecipients, 
@@ -28,14 +28,14 @@ export function usePrivateCalendarEvents() {
   const [privateEvents, setPrivateEvents] = useState<Rumor[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Memoize read relays to prevent infinite re-renders
+  const readRelays = useMemo(() => {
+    return getReadRelays(_preferences);
+  }, [_preferences]);
+
   // Stream private events as they're decrypted
   useEffect(() => {
     if (!user?.pubkey || !user?.signer) {
-      console.log('[usePrivateCalendarEvents] Missing requirements:', { 
-        hasUser: !!user?.pubkey, 
-        hasSigner: !!user?.signer,
-        hasNostr: !!nostr 
-      });
       setPrivateEvents([]);
       return;
     }
@@ -55,8 +55,7 @@ export function usePrivateCalendarEvents() {
           limit: 200
         };
 
-        // Get read relays from user's 10050 preferences 
-        const readRelays = getReadRelays(_preferences);
+        // Use memoized read relays from user's 10050 preferences
 
         const subscription = nostr.req([filter], { 
           signal: controller.signal,
@@ -65,7 +64,7 @@ export function usePrivateCalendarEvents() {
 
 
         const processedIds = new Set<string>();
-        let eventCount = 0;
+        let _eventCount = 0;
         let decryptedCount = 0;
 
 
@@ -87,16 +86,14 @@ export function usePrivateCalendarEvents() {
           // Handle different message types
           if (msg[0] === 'EVENT') {
             const event = msg[2]; // ✅ Extract actual event from msg[2]
-            eventCount++;
+            _eventCount++;
             
             
             if (!isGiftWrap(event)) {
-              console.log('[usePrivateCalendarEvents] Skipping non-gift-wrap event');
               continue;
             }
             
             if (processedIds.has(event.id)) {
-              console.log('[usePrivateCalendarEvents] Skipping already processed event');
               continue;
             }
             
@@ -134,37 +131,11 @@ export function usePrivateCalendarEvents() {
               setIsProcessing(false); // Always clear loading on EOSE, even if no events decrypted
             }
           } else if (msg[0] === 'CLOSED') {
-            console.log('[usePrivateCalendarEvents] Subscription closed');
             break;
           }
         }
         
-        console.log(`[usePrivateCalendarEvents] Stream completed. Events received: ${eventCount}, Successfully decrypted: ${decryptedCount}`);
         
-        // If streaming didn't find any events, try a batch query as fallback
-        if (eventCount === 0 && isMounted) {
-          console.log('[usePrivateCalendarEvents] No events from stream, trying batch query fallback...');
-          try {
-            const signal = AbortSignal.timeout(5000);
-            const batchEvents = await nostr.query([filter], { signal });
-            console.log(`[usePrivateCalendarEvents] Batch query returned ${batchEvents.length} events`);
-            
-            if (batchEvents.length > 0) {
-              console.log('[usePrivateCalendarEvents] Found events with batch query - streaming may not be working properly');
-              // Process a few events for comparison
-              for (let i = 0; i < Math.min(3, batchEvents.length); i++) {
-                const event = batchEvents[i];
-                console.log(`[usePrivateCalendarEvents] Batch event ${i + 1}:`, {
-                  id: event.id.substring(0, 8) + '...',
-                  kind: event.kind,
-                  isGiftWrap: isGiftWrap(event)
-                });
-              }
-            }
-          } catch (error) {
-            console.log('[usePrivateCalendarEvents] Batch query also failed:', error);
-          }
-        }
         
         if (isMounted) {
           setIsProcessing(false);
@@ -186,7 +157,7 @@ export function usePrivateCalendarEvents() {
       isMounted = false;
       controller.abort();
     };
-  }, [user?.pubkey, user?.signer, nostr, _preferences]);
+  }, [user?.pubkey, user?.signer, nostr, readRelays]);
 
   // Wrap in a query-like interface for compatibility
   const query = {
@@ -232,16 +203,8 @@ export function usePrivateCalendarEvents() {
       return rumor;
     },
     onSuccess: () => {
-      // Trigger a re-fetch of private events by changing the effect dependency
-      // This will cause the useEffect to run again and fetch updated events
-      if (user?.pubkey && user?.signer) {
-        // Manually re-trigger the private events processing
-        // by temporarily clearing and refetching
-        setPrivateEvents([]);
-        setTimeout(() => {
-          // The useEffect will handle the refetch automatically
-        }, 100);
-      }
+      // Events will be picked up automatically by the streaming subscription
+      // No need to manually trigger a re-fetch
     },
   });
 
@@ -295,16 +258,8 @@ export function usePrivateCalendarEvents() {
       return rumor;
     },
     onSuccess: () => {
-      // Trigger a re-fetch of private events by changing the effect dependency
-      // This will cause the useEffect to run again and fetch updated events
-      if (user?.pubkey && user?.signer) {
-        // Manually re-trigger the private events processing
-        // by temporarily clearing and refetching
-        setPrivateEvents([]);
-        setTimeout(() => {
-          // The useEffect will handle the refetch automatically
-        }, 100);
-      }
+      // Events will be picked up automatically by the streaming subscription
+      // No need to manually trigger a re-fetch
     },
   });
 

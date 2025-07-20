@@ -30,9 +30,14 @@ interface CreateAvailabilityTemplateData {
   };
   duration: number;
   buffer: number;
+  bufferAfter?: number;
   interval?: number; // Optional, defaults to duration
   timezone: string;
   calendarRef?: string;
+  minNotice?: number;
+  maxAdvance?: number;
+  maxAdvanceBusiness?: boolean;
+  amount?: number;
 }
 
 interface CreateRSVPData {
@@ -169,7 +174,7 @@ export function useCreateAvailabilityTemplate() {
         ['duration', `PT${templateData.duration}M`], // ISO-8601 duration format
         ['interval', `PT${interval}M`], // Gap between slot starts
         ['buffer_before', `PT${templateData.buffer}M`], // Fixed: use buffer_before
-        ['buffer_after', `PT${templateData.buffer}M`], // Add buffer_after (same value for now)
+        ['buffer_after', `PT${templateData.bufferAfter || 0}M`], // Use separate bufferAfter value
         ['tzid', templateData.timezone], // Fixed: use tzid instead of timezone
       ];
 
@@ -179,6 +184,23 @@ export function useCreateAvailabilityTemplate() {
 
       if (templateData.calendarRef) {
         tags.push(['a', templateData.calendarRef]);
+      }
+
+      // Add optional NIP-52 fields
+      if (templateData.minNotice && templateData.minNotice > 0) {
+        tags.push(['min_notice', `PT${templateData.minNotice}M`]);
+      }
+
+      if (templateData.maxAdvance && templateData.maxAdvance > 0) {
+        tags.push(['max_advance', `PT${templateData.maxAdvance}M`]);
+      }
+
+      if (templateData.maxAdvanceBusiness) {
+        tags.push(['max_advance_business', 'true']);
+      }
+
+      if (templateData.amount && templateData.amount > 0) {
+        tags.push(['amount', templateData.amount.toString()]);
       }
 
       // Add schedule tags

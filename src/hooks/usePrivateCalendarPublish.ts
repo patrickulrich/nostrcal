@@ -42,7 +42,6 @@ export function usePrivateCalendarPublish() {
         eventTags.push(['p', pubkey, '', 'participant']);
       });
 
-      console.log('🔨 Creating rumor with tags:', eventTags);
 
       // Create the unsigned calendar event (rumor)
       const rumor = await createRumor({
@@ -52,38 +51,17 @@ export function usePrivateCalendarPublish() {
         created_at: Math.floor(Date.now() / 1000)
       }, user.signer);
 
-      console.log('📝 Created rumor:', {
-        id: rumor.id,
-        kind: rumor.kind,
-        pubkey: rumor.pubkey,
-        tags: rumor.tags,
-        content: rumor.content,
-        created_at: rumor.created_at
-      });
 
       // Extract all participants (including creator)
       const allParticipants = extractParticipants(rumor);
-      console.log('👥 All participants (including creator):', allParticipants);
 
       // Create gift wraps for all participants
-      console.log('🎁 Creating gift wraps for participants...');
       const giftWraps = await createGiftWrapsForRecipients(
         rumor,
         user.signer,
         allParticipants
       );
 
-      console.log('📦 Created gift wraps:', giftWraps.length, 'wraps');
-      giftWraps.forEach((wrap, i) => {
-        console.log(`  Gift wrap ${i + 1}:`, {
-          id: wrap.id,
-          kind: wrap.kind,
-          pubkey: wrap.pubkey,
-          tags: wrap.tags,
-          contentLength: wrap.content.length,
-          created_at: wrap.created_at
-        });
-      });
 
       // Publish gift wraps to participants' relay preferences
       const publishResults = await publishGiftWrapsToParticipants(
@@ -92,7 +70,6 @@ export function usePrivateCalendarPublish() {
         getParticipantRelayPreferences
       );
       
-      console.log(`📊 Publish results: ${publishResults.successful} successful, ${publishResults.failed} failed`);
       
       if (publishResults.successful === 0) {
         throw new Error('Failed to publish to any participant relays');

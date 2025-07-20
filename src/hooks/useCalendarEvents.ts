@@ -198,15 +198,16 @@ export function useCalendarEvents() {
           {
             kinds: [31922, 31923, 31924, 31925, 31926, 31927],
             authors: [user.pubkey],
-            limit: 100
+            limit: 200
           },
           // Events where the user is a participant  
           {
             kinds: [31922, 31923, 31924, 31925, 31926, 31927],
             "#p": [user.pubkey],
-            limit: 100
+            limit: 200
           }
         ];
+
 
   
         // Process multiple subscriptions concurrently
@@ -268,12 +269,12 @@ export function useCalendarEvents() {
 
         // Don't wait for streams to complete - they should run indefinitely!
           
-        // Set a timeout to clear loading state if no events arrive
+        // Set a shorter timeout to clear loading state if no events arrive
         setTimeout(() => {
           if (isMounted) {
             setIsLoading(false);
           }
-        }, 5000); // 5 second timeout
+        }, 3000); // 3 second timeout instead of 5
         
         // Just start all streams in parallel - they'll update state as events arrive
         streamPromises.forEach(promise => {

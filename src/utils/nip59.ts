@@ -46,12 +46,6 @@ export async function createSeal(
   signer: NostrSigner, 
   recipientPublicKeyHex: string
 ): Promise<NostrEvent> {
-  console.log('🔒 Creating seal for recipient:', recipientPublicKeyHex);
-  console.log('  Rumor being sealed:', {
-    id: rumor.id,
-    kind: rumor.kind,
-    pubkey: rumor.pubkey
-  });
   
   const senderPubkey = await signer.getPublicKey();
   
@@ -65,12 +59,6 @@ export async function createSeal(
     pubkey: senderPubkey,
   };
 
-  console.log('📋 Unsigned seal template:', {
-    kind: unsignedSeal.kind,
-    created_at: unsignedSeal.created_at,
-    tags: unsignedSeal.tags,
-    pubkey: unsignedSeal.pubkey
-  });
 
   // Try to encrypt the rumor
   // For extension signers, we might need to use NIP-04 or ask the user for encryption
@@ -78,7 +66,6 @@ export async function createSeal(
     // If signer has nip44 capability, use it
     if (signer.nip44?.encrypt) {
       unsignedSeal.content = await signer.nip44.encrypt(recipientPublicKeyHex, JSON.stringify(rumor));
-      console.log('✅ Encrypted content length:', unsignedSeal.content.length);
     } else {
       // Fallback: we can't encrypt without access to private key
       // This would require the user to provide their private key or use a different method
@@ -92,15 +79,7 @@ export async function createSeal(
   }
 
   // Sign the seal
-  console.log('✍️ Signing seal with signer...');
   const signedSeal = await signer.signEvent(unsignedSeal);
-  console.log('✅ Signed seal:', {
-    id: signedSeal.id,
-    kind: signedSeal.kind,
-    pubkey: signedSeal.pubkey,
-    sig: signedSeal.sig?.substring(0, 20) + '...',
-    contentLength: signedSeal.content.length
-  });
   return signedSeal;
 }
 
@@ -112,21 +91,12 @@ export async function createGiftWrap(
   recipientPublicKeyHex: string,
   _signer?: NostrSigner
 ): Promise<NostrEvent> {
-  console.log('  Seal being wrapped:', {
-    id: seal.id,
-    kind: seal.kind,
-    pubkey: seal.pubkey
-  });
-  
   const randomPrivateKey = generateSecretKey();
   const randomPrivateKeyHex = toHex(randomPrivateKey);
-  const randomPublicKey = getPublicKey(randomPrivateKey);
-  console.log('🔑 Generated ephemeral key pair, pubkey:', randomPublicKey);
+  const _randomPublicKey = getPublicKey(randomPrivateKey);
   
   // Encrypt the seal using the ephemeral key
-  console.log('🔐 Encrypting seal with ephemeral key...');
   const encryptedContent = encrypt(seal, randomPrivateKeyHex, recipientPublicKeyHex);
-  console.log('✅ Encrypted seal, content length:', encryptedContent.length);
   
   // Create and sign the gift wrap with the ephemeral key
   const giftWrapEvent = {
@@ -135,13 +105,6 @@ export async function createGiftWrap(
     created_at: randomPastTime(),
     tags: [["p", recipientPublicKeyHex]],
   };
-  
-  console.log('📦 Gift wrap template:', {
-    kind: giftWrapEvent.kind,
-    created_at: giftWrapEvent.created_at,
-    tags: giftWrapEvent.tags,
-    contentLength: giftWrapEvent.content.length
-  });
   
   const signedGiftWrap = finalizeEvent(giftWrapEvent, randomPrivateKey) as NostrEvent;
   
@@ -246,23 +209,15 @@ export async function createGiftWrapsForRecipients(
   signer: NostrSigner,
   recipientPublicKeys: string[]
 ): Promise<NostrEvent[]> {
-  console.log('  Recipients:', recipientPublicKeys);
-  console.log('  Rumor to wrap:', {
-    id: rumor.id,
-    kind: rumor.kind,
-    pubkey: rumor.pubkey
-  });
-  
   const giftWraps: NostrEvent[] = [];
   
   for (const recipientPubkey of recipientPublicKeys) {
-    console.log(`\n📨 Processing recipient ${recipientPublicKeys.indexOf(recipientPubkey) + 1}/${recipientPublicKeys.length}: ${recipientPubkey}`);
     try {
       const seal = await createSeal(rumor, signer, recipientPubkey);
       const giftWrap = await createGiftWrap(seal, recipientPubkey, signer);
       giftWraps.push(giftWrap);
     } catch (error) {
-      console.error(`❌ Failed to create gift wrap for ${recipientPubkey}:`, error);
+      console.error(`Failed to create gift wrap for ${recipientPubkey}:`, error);
       // Continue with other recipients
     }
   }
@@ -283,8 +238,6 @@ export async function publishGiftWrapsToParticipants(
   },
   getParticipantRelayPreferences: (pubkey: string, nostr: { query: (filters: unknown[], options?: unknown) => Promise<NostrEvent[]> }) => Promise<{ url: string; write?: boolean }[]>
 ): Promise<{ successful: number; failed: number }> {
-  console.log('📡 Publishing gift wraps to participants\' relay preferences...');
-  
   let successCount = 0;
   let failCount = 0;
 
@@ -292,7 +245,7 @@ export async function publishGiftWrapsToParticipants(
     // Extract recipient pubkey from the gift wrap
     const recipientPubkey = giftWrap.tags.find(t => t[0] === 'p')?.[1];
     if (!recipientPubkey) {
-      console.error('❌ Gift wrap missing recipient pubkey');
+      console.error('Gift wrap missing recipient pubkey');
       failCount++;
       continue;
     }
@@ -304,34 +257,33 @@ export async function publishGiftWrapsToParticipants(
         .filter(relay => relay.write !== false)
         .map(relay => relay.url);
 
-      console.log(`📨 Publishing to ${recipientPubkey}'s relays:`, writeRelays);
 
       // Publish to each of the participant's relays
-      const publishPromises = writeRelays.map(relayUrl => 
-        nostr.event(giftWrap, { relays: [relayUrl] })
-          .catch(err => {
-            console.warn(`Failed to publish to ${relayUrl}:`, err);
-            return null;
-          })
-      );
+      const publishPromises = writeRelays.map(async relayUrl => {
+        try {
+          await nostr.event(giftWrap, { relays: [relayUrl] });
+          return true;
+        } catch (err) {
+          console.warn(`Failed to publish to ${relayUrl}:`, err);
+          return false;
+        }
+      });
 
       const results = await Promise.allSettled(publishPromises);
       const relaySuccesses = results.filter(r => r.status === 'fulfilled' && r.value !== null).length;
       
       if (relaySuccesses > 0) {
         successCount++;
-        console.log(`✅ Successfully published to ${relaySuccesses}/${writeRelays.length} relays for ${recipientPubkey}`);
       } else {
         failCount++;
-        console.error(`❌ Failed to publish to any relay for ${recipientPubkey}`);
+        console.error(`Failed to publish to any relay for ${recipientPubkey}`);
       }
     } catch (error) {
-      console.error(`❌ Error publishing gift wrap for ${recipientPubkey}:`, error);
+      console.error(`Error publishing gift wrap for ${recipientPubkey}:`, error);
       failCount++;
     }
   }
 
-  console.log(`📊 Gift wrap publishing complete: ${successCount} successful, ${failCount} failed`);
   return { successful: successCount, failed: failCount };
 }
 

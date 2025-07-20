@@ -279,22 +279,8 @@ export default function NewEvent() {
       }
 
       if (formData.isPrivate) {
-        console.log('🔐 Creating private event with debugging enabled');
-        console.log('📋 Event details:', {
-          eventType,
-          title: formData.title,
-          description: formData.description,
-          start,
-          end,
-          location: formData.location,
-          timezone: formData.timezone,
-          participants: formData.participants,
-          currentUserPubkey: user.pubkey
-        });
-        
         // Use private event publishing
         if (eventType === 'all-day') {
-          console.log('📅 Publishing private date-based event (kind 31922)');
           await publishPrivateDateEvent({
             title: formData.title,
             description: formData.description,
@@ -309,7 +295,6 @@ export default function NewEvent() {
             participants: formData.participants
           });
         } else {
-          console.log('⏰ Publishing private time-based event (kind 31923)');
           await publishPrivateTimeEvent({
             title: formData.title,
             description: formData.description,
@@ -326,11 +311,9 @@ export default function NewEvent() {
             participants: formData.participants
           });
         }
-        console.log('✅ Private event publishing completed');
         
         // Create busy slot for private events if enabled and this is a timed event
         if (formData.createBusySlot && eventType === 'timed') {
-          console.log('🚫 Creating public busy slot (kind 31927) for private event time');
           try {
             await publishEvent.mutateAsync({
               kind: 31927,
@@ -340,7 +323,6 @@ export default function NewEvent() {
               description: '', // Keep busy slots private - no details
               isPrivate: false // Busy slots are always public so others can see availability
             });
-            console.log('✅ Busy slot created successfully for private event');
           } catch (busySlotError) {
             console.error('Failed to create busy slot for private event:', busySlotError);
             // Don't fail the entire operation if busy slot creation fails

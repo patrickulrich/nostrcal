@@ -47,6 +47,7 @@ interface AvailabilityTemplate {
   description?: string;
   duration: number;
   buffer: number;
+  bufferAfter?: number;
   interval: number;
   timezone: string;
   location?: string;
@@ -55,6 +56,9 @@ interface AvailabilityTemplate {
     [day: string]: { start: string; end: string }[];
   };
   amount?: number;
+  minNotice?: number;
+  maxAdvance?: number;
+  maxAdvanceBusiness?: boolean;
   pubkey: string;
 }
 
@@ -99,9 +103,14 @@ export default function EventSlots() {
     location: '',
     duration: 30,
     buffer: 0,
+    bufferAfter: 0,
+    interval: 30,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     calendarRef: '',
     amount: 0,
+    minNotice: 0,
+    maxAdvance: 0,
+    maxAdvanceBusiness: false,
     availability: {} as DayAvailability
   });
 
@@ -154,6 +163,7 @@ export default function EventSlots() {
           description: tags.find(t => t[0] === 'summary')?.[1] || event.content,
           duration: duration,
           buffer: parseDuration(tags.find(t => t[0] === 'buffer_before')?.[1] || tags.find(t => t[0] === 'buffer')?.[1] || ''), // Support both new and legacy formats
+          bufferAfter: parseDuration(tags.find(t => t[0] === 'buffer_after')?.[1] || ''),
           interval: parseDuration(tags.find(t => t[0] === 'interval')?.[1] || '') || duration, // Default to duration if no interval
           timezone: tags.find(t => t[0] === 'tzid')?.[1] || tags.find(t => t[0] === 'timezone')?.[1] || 'UTC', // Support both new and legacy formats
           location: tags.find(t => t[0] === 'location')?.[1],
@@ -161,6 +171,9 @@ export default function EventSlots() {
           availability,
           amount: tags.find(t => t[0] === 'amount')?.[1] 
             ? parseInt(tags.find(t => t[0] === 'amount')?.[1] || '0') : undefined,
+          minNotice: parseDuration(tags.find(t => t[0] === 'min_notice')?.[1] || ''),
+          maxAdvance: parseDuration(tags.find(t => t[0] === 'max_advance')?.[1] || ''),
+          maxAdvanceBusiness: tags.find(t => t[0] === 'max_advance_business')?.[1] === 'true',
           pubkey: event.pubkey
         };
       });
@@ -189,9 +202,14 @@ export default function EventSlots() {
       location: '',
       duration: 30,
       buffer: 0,
+      bufferAfter: 0,
+      interval: 30,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       calendarRef: '',
       amount: 0,
+      minNotice: 0,
+      maxAdvance: 0,
+      maxAdvanceBusiness: false,
       availability: {}
     });
   };
@@ -203,9 +221,14 @@ export default function EventSlots() {
       location: template.location || '',
       duration: template.duration,
       buffer: template.buffer,
+      bufferAfter: template.bufferAfter || 0,
+      interval: template.interval || template.duration,
       timezone: template.timezone,
       calendarRef: template.calendarRef || '',
       amount: template.amount || 0,
+      minNotice: template.minNotice || 0,
+      maxAdvance: template.maxAdvance || 0,
+      maxAdvanceBusiness: template.maxAdvanceBusiness || false,
       availability: template.availability
     });
     setEditingTemplate(template);
@@ -238,8 +261,14 @@ export default function EventSlots() {
         availability: formData.availability,
         duration: formData.duration,
         buffer: formData.buffer,
+        bufferAfter: formData.bufferAfter,
+        interval: formData.interval,
         timezone: formData.timezone,
-        calendarRef: formData.calendarRef || undefined
+        calendarRef: formData.calendarRef || undefined,
+        minNotice: formData.minNotice,
+        maxAdvance: formData.maxAdvance,
+        maxAdvanceBusiness: formData.maxAdvanceBusiness,
+        amount: formData.amount
       });
 
       toast({
@@ -561,7 +590,21 @@ export default function EventSlots() {
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="buffer">Buffer Time (minutes)</Label>
+                <Label htmlFor="interval">Interval (minutes)</Label>
+                <Input
+                  id="interval"
+                  type="number"
+                  min="5"
+                  max="480"
+                  value={formData.interval}
+                  onChange={(e) => setFormData(prev => ({ ...prev, interval: parseInt(e.target.value) || 30 }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="buffer">Buffer Before (minutes)</Label>
                 <Input
                   id="buffer"
                   type="number"
@@ -571,6 +614,68 @@ export default function EventSlots() {
                   onChange={(e) => setFormData(prev => ({ ...prev, buffer: parseInt(e.target.value) || 0 }))}
                 />
               </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="bufferAfter">Buffer After (minutes)</Label>
+                <Input
+                  id="bufferAfter"
+                  type="number"
+                  min="0"
+                  max="60"
+                  value={formData.bufferAfter}
+                  onChange={(e) => setFormData(prev => ({ ...prev, bufferAfter: parseInt(e.target.value) || 0 }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="minNotice">Minimum Notice (minutes)</Label>
+                <Input
+                  id="minNotice"
+                  type="number"
+                  min="0"
+                  max="10080"
+                  value={formData.minNotice}
+                  onChange={(e) => setFormData(prev => ({ ...prev, minNotice: parseInt(e.target.value) || 0 }))}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="maxAdvance">Maximum Advance (minutes)</Label>
+                <Input
+                  id="maxAdvance"
+                  type="number"
+                  min="0"
+                  max="525600"
+                  value={formData.maxAdvance}
+                  onChange={(e) => setFormData(prev => ({ ...prev, maxAdvance: parseInt(e.target.value) || 0 }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="amount">Amount (satoshis)</Label>
+                <Input
+                  id="amount"
+                  type="number"
+                  min="0"
+                  value={formData.amount}
+                  onChange={(e) => setFormData(prev => ({ ...prev, amount: parseInt(e.target.value) || 0 }))}
+                />
+              </div>
+              
+              <div className="space-y-2 flex items-center">
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.maxAdvanceBusiness}
+                    onChange={(e) => setFormData(prev => ({ ...prev, maxAdvanceBusiness: e.target.checked }))}
+                  />
+                  <span>Count business days only</span>
+                </label>
+              </div>
             </div>
 
             {/* Calendar Assignment */}
@@ -578,14 +683,14 @@ export default function EventSlots() {
               <div className="space-y-2">
                 <Label htmlFor="calendar">Calendar (optional)</Label>
                 <Select 
-                  value={formData.calendarRef} 
-                  onValueChange={(value) => setFormData(prev => ({ ...prev, calendarRef: value }))}
+                  value={formData.calendarRef || 'none'} 
+                  onValueChange={(value) => setFormData(prev => ({ ...prev, calendarRef: value === 'none' ? '' : value }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a calendar" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">No calendar</SelectItem>
+                    <SelectItem value="none">No calendar</SelectItem>
                     {userCalendars.map(cal => (
                       <SelectItem key={cal.id} value={`31924:${user.pubkey}:${cal.id}`}>
                         {cal.name}
