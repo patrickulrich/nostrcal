@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useCalendar } from '@/hooks/useCalendar';
 import { Button } from '@/components/ui/button';
 import EnhancedCalendarView from '@/components/EnhancedCalendarView';
@@ -9,7 +9,8 @@ import {
   ChevronRight, 
   Home,
   Download,
-  MoreHorizontal
+  Menu,
+  Calendar as CalendarIcon
 } from 'lucide-react';
 import { 
   DropdownMenu,
@@ -19,6 +20,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useEvents } from '@/hooks/useEvents';
 import { exportEventsAsICS } from '@/utils/icsExporter';
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 
 function CalendarControls() {
   const { 
@@ -30,6 +32,7 @@ function CalendarControls() {
     navigateToToday 
   } = useCalendar();
   const { getFilteredEvents } = useEvents();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleExportAllEvents = () => {
     const events = getFilteredEvents();
@@ -128,68 +131,103 @@ function CalendarControls() {
     }
   };
 
+  // Shorter date format for mobile
+  const formatMobileDate = () => {
+    if (view === 'month') {
+      return currentDate.toLocaleDateString('en-US', { 
+        month: 'short', 
+        year: 'numeric' 
+      });
+    } else if (view === 'week') {
+      const weekStart = new Date(currentDate);
+      const day = weekStart.getDay();
+      const diff = weekStart.getDate() - day;
+      weekStart.setDate(diff);
+      
+      return `Week of ${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+    } else {
+      return currentDate.toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric'
+      });
+    }
+  };
+
   return (
-    <div className="flex items-center justify-between p-4 border-b bg-background">
-      <div className="flex items-center gap-4">
+    <div className="border-b bg-background">
+      {/* Mobile Header */}
+      <div className="flex items-center justify-between p-2 sm:hidden">
+        <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+          <SheetTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <Menu className="h-5 w-5" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="w-[300px] sm:w-[400px]">
+            <div className="space-y-6 py-4">
+              <MiniCalendar />
+              <CalendarList />
+            </div>
+          </SheetContent>
+        </Sheet>
+
         <div className="flex items-center gap-2">
           <Button
-            variant="outline"
-            size="sm"
+            variant="ghost"
+            size="icon"
             onClick={navigatePrevious}
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
           
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={navigateToToday}
-          >
-            <Home className="h-4 w-4" />
-            Today
-          </Button>
+          <span className="text-sm font-medium min-w-[120px] text-center">
+            {formatMobileDate()}
+          </span>
           
           <Button
-            variant="outline"
-            size="sm"
+            variant="ghost"
+            size="icon"
             onClick={navigateNext}
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
 
-        <h1 className="text-xl font-semibold">
-          {formatHeaderDate()}
-        </h1>
-      </div>
-
-      <div className="flex items-center gap-2">
-        {/* Export dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm">
-              <MoreHorizontal className="h-4 w-4" />
+            <Button variant="ghost" size="icon">
+              <Download className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={handleExportVisibleEvents}>
-              <Download className="h-4 w-4 mr-2" />
-              Export Current {view.charAt(0).toUpperCase() + view.slice(1)}
+              Export Current {view}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={handleExportAllEvents}>
-              <Download className="h-4 w-4 mr-2" />
               Export All Events
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+      </div>
 
-        {/* View selector */}
-        <div className="flex items-center border rounded-lg">
+      {/* Mobile View Selector */}
+      <div className="flex sm:hidden border-t px-2 py-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={navigateToToday}
+          className="mr-auto"
+        >
+          <Home className="h-3 w-3 mr-1" />
+          Today
+        </Button>
+        
+        <div className="flex gap-1">
           <Button
             variant={view === 'day' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => setCalendarView('day')}
-            className="rounded-r-none"
+            className="px-2 h-7 text-xs"
           >
             Day
           </Button>
@@ -197,7 +235,7 @@ function CalendarControls() {
             variant={view === 'week' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => setCalendarView('week')}
-            className="rounded-none"
+            className="px-2 h-7 text-xs"
           >
             Week
           </Button>
@@ -205,10 +243,96 @@ function CalendarControls() {
             variant={view === 'month' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => setCalendarView('month')}
-            className="rounded-l-none"
+            className="px-2 h-7 text-xs"
           >
             Month
           </Button>
+        </div>
+      </div>
+
+      {/* Desktop Header */}
+      <div className="hidden sm:flex items-center justify-between p-4">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={navigatePrevious}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={navigateToToday}
+            >
+              <Home className="h-4 w-4" />
+              <span className="ml-1">Today</span>
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={navigateNext}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <h1 className="text-xl font-semibold">
+            {formatHeaderDate()}
+          </h1>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Export dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleExportVisibleEvents}>
+                <CalendarIcon className="h-4 w-4 mr-2" />
+                Export Current {view.charAt(0).toUpperCase() + view.slice(1)}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportAllEvents}>
+                <Download className="h-4 w-4 mr-2" />
+                Export All Events
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* View selector */}
+          <div className="flex items-center border rounded-lg">
+            <Button
+              variant={view === 'day' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setCalendarView('day')}
+              className="rounded-r-none"
+            >
+              Day
+            </Button>
+            <Button
+              variant={view === 'week' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setCalendarView('week')}
+              className="rounded-none"
+            >
+              Week
+            </Button>
+            <Button
+              variant={view === 'month' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setCalendarView('month')}
+              className="rounded-l-none"
+            >
+              Month
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -221,15 +345,15 @@ export default function CalendarPage() {
       <CalendarControls />
       
       <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
-        <div className="w-80 border-r bg-background overflow-y-auto">
+        {/* Desktop Sidebar */}
+        <div className="hidden lg:block w-80 border-r bg-background overflow-y-auto">
           <div className="p-4 space-y-6">
             <MiniCalendar />
             <CalendarList />
           </div>
         </div>
 
-        {/* Main Calendar */}
+        {/* Main Calendar - Full width on mobile */}
         <div className="flex-1 overflow-hidden">
           <EnhancedCalendarView />
         </div>
