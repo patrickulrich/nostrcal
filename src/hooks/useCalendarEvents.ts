@@ -41,7 +41,13 @@ interface CalendarEvent {
 // Transform NostrEvent or Rumor to CalendarEvent
 function transformEventForCalendar(event: NostrEvent | Rumor): CalendarEvent {
   const dTag = event.tags.find(tag => tag[0] === 'd')?.[1];
-  const title = event.tags.find(tag => tag[0] === 'title')?.[1];
+  let title = event.tags.find(tag => tag[0] === 'title')?.[1];
+  
+  // Special handling for busy time blocks (kind 31927)
+  if (event.kind === 31927) {
+    title = 'Booking Block';
+  }
+  
   const summary = event.tags.find(tag => tag[0] === 'summary')?.[1];
   const image = event.tags.find(tag => tag[0] === 'image')?.[1];
   const start = event.tags.find(tag => tag[0] === 'start')?.[1];

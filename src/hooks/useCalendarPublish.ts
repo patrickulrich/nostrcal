@@ -116,6 +116,10 @@ export function useCalendarPublish() {
           // If no end timezone specified, use start timezone
           tags.push(['end_tzid', eventData.timezone]);
         }
+      } else if (eventData.kind === 31927) {
+        // Availability block (busy slot)
+        if (eventData.start) tags.push(['start', eventData.start]);
+        if (eventData.end) tags.push(['end', eventData.end]);
       }
 
       // Add custom tags

@@ -27,33 +27,52 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
 
   // Helper function to get current user from logins
   const getCurrentUser = () => {
-    if (logins.length === 0) return null;
+    if (logins.length === 0) {
+      console.log('[NostrProvider] No logins available for authentication');
+      return null;
+    }
     
     const login = logins[0];
     try {
+      let user: NUser | null = null;
       switch (login.type) {
         case 'nsec':
-          return NUser.fromNsecLogin(login);
+          user = NUser.fromNsecLogin(login);
+          break;
         case 'extension':
-          return NUser.fromExtensionLogin(login);
+          user = NUser.fromExtensionLogin(login);
+          break;
         case 'bunker':
           // For bunker login, create user with the nostr instance if available
           if (pool.current) {
-            return NUser.fromBunkerLogin(login, pool.current);
+            user = NUser.fromBunkerLogin(login, pool.current);
+          } else {
+            console.warn('[NostrProvider] Bunker login attempted but nostr pool not available');
+            return null;
           }
-          console.warn('Bunker login attempted but nostr pool not available');
-          return null;
+          break;
         default:
+          console.warn(`[NostrProvider] Unsupported login type: ${login.type}`);
           return null;
       }
+      
+      if (user?.signer) {
+        return user;
+      } else {
+        console.warn('[NostrProvider] User created but no signer available');
+        return null;
+      }
     } catch (error) {
-      console.warn('Failed to create user from login:', error);
+      console.error('[NostrProvider] Failed to create user from login:', error);
       return null;
     }
   };
 
   // Create NPool instance only once
   const pool = useRef<NPool | undefined>(undefined);
+  
+  // Track authenticated relays to avoid spam
+  const _authenticatedRelays = useRef<Set<string>>(new Set());
 
   // Use refs so the pool always has the latest data
   const relayUrls = useRef<string[]>(config.relayUrls || []);
@@ -82,10 +101,10 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
               
               const normalizedUrl = normalizeRelayUrl(url);
               const authEvent = await createAuthEvent(challenge, normalizedUrl, currentUser.signer);
-              console.log(`[NostrProvider] Authenticating to relay: ${normalizedUrl}`);
               return authEvent;
             } catch (error) {
               console.error(`[NostrProvider] Authentication failed for ${url}:`, error);
+              console.error(`[NostrProvider] This may prevent access to private events on ${url}`);
               throw error;
             }
           };

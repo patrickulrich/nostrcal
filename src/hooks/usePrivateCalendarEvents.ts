@@ -14,7 +14,7 @@ import {
   Rumor,
   publishGiftWrapsToParticipants
 } from '@/utils/nip59';
-import { getParticipantRelayPreferences } from '@/utils/relay-preferences';
+import { getParticipantRelayPreferences, getReadRelays } from '@/utils/relay-preferences';
 import { NostrEvent } from '@nostrify/nostrify';
 
 /**
@@ -55,9 +55,12 @@ export function usePrivateCalendarEvents() {
           limit: 200
         };
 
+        // Get read relays from user's 10050 preferences 
+        const readRelays = getReadRelays(_preferences);
 
         const subscription = nostr.req([filter], { 
-          signal: controller.signal 
+          signal: controller.signal,
+          relays: readRelays
         });
 
 
@@ -183,7 +186,7 @@ export function usePrivateCalendarEvents() {
       isMounted = false;
       controller.abort();
     };
-  }, [user?.pubkey, user?.signer, nostr]);
+  }, [user?.pubkey, user?.signer, nostr, _preferences]);
 
   // Wrap in a query-like interface for compatibility
   const query = {
