@@ -321,7 +321,7 @@ export default function Booking() {
     location,
     timezone,
     participants,
-    ownerRelays
+    ownerRelays: _ownerRelays
   }: {
     title: string;
     description: string;
@@ -357,7 +357,8 @@ export default function Booking() {
     console.log('🔨 Creating rumor with tags:', tags);
 
     // Create the unsigned calendar event (rumor)
-    const { createRumor, createGiftWrapsForRecipients, extractParticipants } = await import('@/utils/nip59');
+    const { createRumor, createGiftWrapsForRecipients, extractParticipants, publishGiftWrapsToParticipants } = await import('@/utils/nip59');
+    const { getParticipantRelayPreferences } = await import('@/utils/relay-preferences');
     
     const rumor = await createRumor({
       kind: 31923,
@@ -382,52 +383,16 @@ export default function Booking() {
 
     console.log('📦 Created gift wraps:', giftWraps.length, 'wraps');
 
-    // Broadcast to owner's write relays (for calendar owner)
-    const ownerWriteRelays = ownerRelays.filter(r => r.write).map(r => r.url);
-    console.log('📡 Broadcasting to owner write relays:', ownerWriteRelays);
+    // Publish gift wraps to participants' relay preferences
+    const publishResults = await publishGiftWrapsToParticipants(
+      giftWraps,
+      nostr,
+      getParticipantRelayPreferences
+    );
     
-    // Broadcast to our own relays as well  
-    const { getWriteRelays: _getWriteRelays } = await import('@/utils/relay-preferences');
+    console.log(`📊 Broadcast results: ${publishResults.successful} successful, ${publishResults.failed} failed`);
     
-    // Get our write relays from preferences hook (we'll use current config relays as fallback)
-    const ourWriteRelays = (template as { config?: { relayUrls?: string[] } }).config?.relayUrls || [
-      'wss://relay.damus.io',
-      'wss://nos.lol'
-    ];
-    
-    // Combine all relay URLs and remove duplicates
-    const allRelayUrls = [...new Set([...ownerWriteRelays, ...ourWriteRelays])];
-    console.log('📡 All relay URLs for broadcasting:', allRelayUrls);
-
-    // Publish each gift wrap to all relays
-    const publishPromises: Promise<void>[] = [];
-    
-    for (const giftWrap of giftWraps) {
-      try {
-        console.log('🎁 Publishing gift wrap to all relays:', {
-          id: giftWrap.id,
-          kind: giftWrap.kind,
-          recipientPubkey: giftWrap.tags.find(t => t[0] === 'p')?.[1]
-        });
-        
-        // Use nostr.event which will broadcast to all configured relays
-        const publishPromise = nostr.event(giftWrap);
-        publishPromises.push(publishPromise);
-        
-        console.log(`✅ Scheduled gift wrap for broadcasting`);
-      } catch (error) {
-        console.error('❌ Failed to schedule gift wrap:', error);
-      }
-    }
-    
-    // Wait for all publishes to complete
-    const results = await Promise.allSettled(publishPromises);
-    const successful = results.filter(r => r.status === 'fulfilled').length;
-    const failed = results.filter(r => r.status === 'rejected').length;
-    
-    console.log(`📊 Broadcast results: ${successful} successful, ${failed} failed`);
-    
-    if (successful === 0) {
+    if (publishResults.successful === 0) {
       throw new Error('Failed to broadcast booking to any relays');
     }
 

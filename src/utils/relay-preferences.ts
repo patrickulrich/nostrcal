@@ -57,9 +57,9 @@ export function createRelayPreferencesEvent(relays: RelayPreference[]): Partial<
  */
 export function getDefaultRelayPreferences(): RelayPreference[] {
   return [
-    { url: 'wss://relay.primal.net', read: true, write: true },
-    { url: 'wss://relay.damus.io', read: true, write: true },
-    { url: 'wss://nos.lol', read: true, write: true }
+    { url: 'wss://relay.nostrcal.com', read: true, write: true },
+    { url: 'wss://auth.nostr1.com', read: true, write: true },
+    { url: 'wss://relay.nostr.band', read: true, write: true }
   ];
 }
 
@@ -70,6 +70,36 @@ export function getWriteRelays(preferences: RelayPreference[]): string[] {
   return preferences
     .filter(pref => pref.write !== false)
     .map(pref => pref.url);
+}
+
+/**
+ * Query a participant's relay preferences
+ * Returns their published preferences or defaults if not found
+ */
+export async function getParticipantRelayPreferences(
+  pubkey: string,
+  nostr: { query: (filters: unknown[], options?: unknown) => Promise<NostrEvent[]> }
+): Promise<RelayPreference[]> {
+  try {
+    const signal = AbortSignal.timeout(5000);
+    const events = await nostr.query([
+      {
+        kinds: [10050],
+        authors: [pubkey],
+        limit: 1
+      }
+    ], { signal });
+
+    if (events.length > 0) {
+      const preferences = parseRelayPreferences(events[0]);
+      return preferences.length > 0 ? preferences : getDefaultRelayPreferences();
+    }
+  } catch (error) {
+    console.warn(`Failed to fetch relay preferences for ${pubkey}:`, error);
+  }
+
+  // Return defaults if no preferences found or query failed
+  return getDefaultRelayPreferences();
 }
 
 /**

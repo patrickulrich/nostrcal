@@ -1,7 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { ScrollToTop } from "./components/ScrollToTop";
 import SiteHeader from "./components/SiteHeader";
-import { PrivateRelayAlert } from "./components/PrivateRelayAlert";
 
 import Index from "./pages/Index";
 import { NIP19Page } from "./pages/NIP19Page";
@@ -21,9 +20,6 @@ export function AppRouter() {
       <ScrollToTop />
       <div className="min-h-screen flex flex-col">
         <SiteHeader />
-        <div className="container mx-auto px-4">
-          <PrivateRelayAlert />
-        </div>
         <main className="flex-1">
           <Routes>
             <Route path="/" element={<Index />} />

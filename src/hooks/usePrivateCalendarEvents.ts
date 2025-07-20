@@ -11,9 +11,10 @@ import {
   isCalendarRumor,
   isGiftWrap,
   createRumor,
-  Rumor
+  Rumor,
+  publishGiftWrapsToParticipants
 } from '@/utils/nip59';
-import { getWriteRelays } from '@/utils/relay-preferences';
+import { getParticipantRelayPreferences } from '@/utils/relay-preferences';
 import { NostrEvent } from '@nostrify/nostrify';
 
 /**
@@ -22,7 +23,7 @@ import { NostrEvent } from '@nostrify/nostrify';
 export function usePrivateCalendarEvents() {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
-  const { preferences } = useRelayPreferences();
+  const { preferences: _preferences } = useRelayPreferences();
   const { config: _config } = useAppContext();
   const [privateEvents, setPrivateEvents] = useState<Rumor[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -218,18 +219,12 @@ export function usePrivateCalendarEvents() {
         allParticipants
       );
 
-      // Get each participant's relay preferences and send to their relays
-      const _writeRelays = getWriteRelays(preferences);
-      const publishPromises: Promise<void>[] = [];
-
-      for (const giftWrap of giftWraps) {
-        // For now, publish to our own write relays
-        // TODO: Query each participant's relay preferences
-        const publishPromise = nostr.event(giftWrap);
-        publishPromises.push(publishPromise);
-      }
-
-      await Promise.allSettled(publishPromises);
+      // Publish gift wraps to participants' relay preferences
+      await publishGiftWrapsToParticipants(
+        giftWraps,
+        nostr,
+        getParticipantRelayPreferences
+      );
       
       return rumor;
     },
@@ -287,9 +282,12 @@ export function usePrivateCalendarEvents() {
         participants
       );
 
-      // Publish to relays
-      const publishPromises = giftWraps.map(giftWrap => nostr.event(giftWrap));
-      await Promise.allSettled(publishPromises);
+      // Publish gift wraps to participants' relay preferences
+      await publishGiftWrapsToParticipants(
+        giftWraps,
+        nostr,
+        getParticipantRelayPreferences
+      );
       
       return rumor;
     },

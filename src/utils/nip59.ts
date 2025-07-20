@@ -271,6 +271,71 @@ export async function createGiftWrapsForRecipients(
 }
 
 /**
+ * Publish gift wraps to participants' relay preferences
+ * Queries each participant's 10050 relay list and sends to their preferred relays
+ * Falls back to default relays if participant has no published preferences
+ */
+export async function publishGiftWrapsToParticipants(
+  giftWraps: NostrEvent[],
+  nostr: { 
+    event: (event: NostrEvent, options?: { relays?: string[] }) => Promise<void>;
+    query: (filters: unknown[], options?: unknown) => Promise<NostrEvent[]>;
+  },
+  getParticipantRelayPreferences: (pubkey: string, nostr: { query: (filters: unknown[], options?: unknown) => Promise<NostrEvent[]> }) => Promise<{ url: string; write?: boolean }[]>
+): Promise<{ successful: number; failed: number }> {
+  console.log('📡 Publishing gift wraps to participants\' relay preferences...');
+  
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const giftWrap of giftWraps) {
+    // Extract recipient pubkey from the gift wrap
+    const recipientPubkey = giftWrap.tags.find(t => t[0] === 'p')?.[1];
+    if (!recipientPubkey) {
+      console.error('❌ Gift wrap missing recipient pubkey');
+      failCount++;
+      continue;
+    }
+
+    try {
+      // Get participant's relay preferences
+      const participantRelays = await getParticipantRelayPreferences(recipientPubkey, nostr);
+      const writeRelays = participantRelays
+        .filter(relay => relay.write !== false)
+        .map(relay => relay.url);
+
+      console.log(`📨 Publishing to ${recipientPubkey}'s relays:`, writeRelays);
+
+      // Publish to each of the participant's relays
+      const publishPromises = writeRelays.map(relayUrl => 
+        nostr.event(giftWrap, { relays: [relayUrl] })
+          .catch(err => {
+            console.warn(`Failed to publish to ${relayUrl}:`, err);
+            return null;
+          })
+      );
+
+      const results = await Promise.allSettled(publishPromises);
+      const relaySuccesses = results.filter(r => r.status === 'fulfilled' && r.value !== null).length;
+      
+      if (relaySuccesses > 0) {
+        successCount++;
+        console.log(`✅ Successfully published to ${relaySuccesses}/${writeRelays.length} relays for ${recipientPubkey}`);
+      } else {
+        failCount++;
+        console.error(`❌ Failed to publish to any relay for ${recipientPubkey}`);
+      }
+    } catch (error) {
+      console.error(`❌ Error publishing gift wrap for ${recipientPubkey}:`, error);
+      failCount++;
+    }
+  }
+
+  console.log(`📊 Gift wrap publishing complete: ${successCount} successful, ${failCount} failed`);
+  return { successful: successCount, failed: failCount };
+}
+
+/**
  * Extract participant public keys from calendar event
  */
 export function extractParticipants(event: Rumor): string[] {

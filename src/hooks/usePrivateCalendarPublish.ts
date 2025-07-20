@@ -6,9 +6,10 @@ import { useNostr } from '@nostrify/react';
 import { 
   createRumor, 
   createGiftWrapsForRecipients, 
-  extractParticipants 
+  extractParticipants,
+  publishGiftWrapsToParticipants
 } from '@/utils/nip59';
-import { getWriteRelays } from '@/utils/relay-preferences';
+import { getParticipantRelayPreferences } from '@/utils/relay-preferences';
 
 /**
  * Hook for publishing private calendar events
@@ -16,7 +17,7 @@ import { getWriteRelays } from '@/utils/relay-preferences';
 export function usePrivateCalendarPublish() {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
-  const { preferences } = useRelayPreferences();
+  const { preferences: _preferences } = useRelayPreferences();
   const queryClient = useQueryClient();
 
   const publishPrivateEvent = useMutation({
@@ -84,27 +85,17 @@ export function usePrivateCalendarPublish() {
         });
       });
 
-      // Get relays to publish to
-      const writeRelays = getWriteRelays(preferences);
-      console.log('📡 Write relays:', writeRelays);
-
-      // Publish each gift wrap
-      console.log('📤 Publishing gift wraps:', giftWraps.length);
+      // Publish gift wraps to participants' relay preferences
+      const publishResults = await publishGiftWrapsToParticipants(
+        giftWraps,
+        nostr,
+        getParticipantRelayPreferences
+      );
       
-      for (const giftWrap of giftWraps) {
-        try {
-          console.log('🎁 Publishing gift wrap:', {
-            id: giftWrap.id,
-            kind: giftWrap.kind,
-            pubkey: giftWrap.pubkey,
-            tags: giftWrap.tags,
-            created_at: giftWrap.created_at
-          });
-          await nostr.event(giftWrap);
-          console.log(`✅ Published private event to participant: ${giftWrap.tags.find(t => t[0] === 'p')?.[1]}`);
-        } catch (error) {
-          console.error('❌ Failed to publish gift wrap:', error);
-        }
+      console.log(`📊 Publish results: ${publishResults.successful} successful, ${publishResults.failed} failed`);
+      
+      if (publishResults.successful === 0) {
+        throw new Error('Failed to publish to any participant relays');
       }
 
       return rumor;
