@@ -77,6 +77,7 @@ export default function Booking() {
 
         // Decode naddr
         const decoded = nip19.decode(naddr);
+        
         if (decoded.type !== 'naddr') {
           setError('Invalid booking link');
           setStep('error');
@@ -84,6 +85,7 @@ export default function Booking() {
         }
 
         const { kind, pubkey, identifier } = decoded.data;
+        
         if (kind !== 31926) {
           setError('Invalid booking link type');
           setStep('error');
@@ -99,6 +101,7 @@ export default function Booking() {
           limit: 1
         }], { signal });
 
+
         if (events.length === 0) {
           setError('Booking template not found');
           setStep('error');
@@ -109,42 +112,215 @@ export default function Booking() {
         const templateData = parseAvailabilityTemplate(event);
         setTemplate(templateData);
 
-        // Fetch busy times (availability blocks)
-        const busyEvents = await nostr.query([{
-          kinds: [31927],
+        // First, fetch the calendar owner's relay preferences to know where to look for events
+        const relayPrefSignal = AbortSignal.timeout(5000);
+        
+        // Fetch general relays (10002)
+        const generalRelayEvents = await nostr.query([{
+          kinds: [10002],
           authors: [pubkey],
-          limit: 100
-        }], { signal });
+          limit: 1
+        }], { signal: relayPrefSignal });
+        
+        // Fetch private relays (10050)
+        const privateRelayEvents = await nostr.query([{
+          kinds: [10050],
+          authors: [pubkey],
+          limit: 1
+        }], { signal: relayPrefSignal });
+        
+        // Extract relay URLs from both lists
+        const generalRelays = generalRelayEvents.length > 0 
+          ? generalRelayEvents[0].tags.filter(t => t[0] === 'r').map(t => t[1])
+          : [];
+          
+        const privateRelays = privateRelayEvents.length > 0
+          ? privateRelayEvents[0].tags.filter(t => t[0] === 'r').map(t => t[1])
+          : [];
+          
+        // Combine all relays (remove duplicates)
+        const allOwnerRelays = [...new Set([...generalRelays, ...privateRelays])];
+        
+
+        // Now fetch all events that could block availability from the owner's relays:
+        // - 31922: Date-based calendar events
+        // - 31923: Time-based calendar events  
+        // - 31925: RSVPs with "accepted" status
+        // - 31927: Availability blocks (busy time)
+        
+        // Query options with relay preferences if available
+        const queryOptions: { signal: AbortSignal; relays?: string[] } = { signal };
+        if (allOwnerRelays.length > 0) {
+          // Use the owner's relays if we found any
+          queryOptions.relays = allOwnerRelays;
+        } else {
+        }
+        
+        const busyEvents = await nostr.query([{
+          kinds: [31922, 31923, 31925, 31927],
+          authors: [pubkey],
+          limit: 500
+        }], queryOptions);
+        
+        
+        // Extract coordinates from accepted RSVPs with fb:busy to fetch their referenced events
+        const acceptedRSVPs = busyEvents.filter(event => {
+          if (event.kind !== 31925) return false;
+          const status = event.tags.find(t => t[0] === 'status')?.[1];
+          const fb = event.tags.find(t => t[0] === 'fb')?.[1];
+          // Only consider accepted RSVPs that are marked as busy
+          return status === 'accepted' && fb === 'busy';
+        });
+        
+        const rsvpCoordinates = new Set<string>();
+        acceptedRSVPs.forEach(rsvp => {
+          const coordinate = rsvp.tags.find(tag => tag[0] === 'a')?.[1];
+          if (coordinate) {
+            rsvpCoordinates.add(coordinate);
+          }
+        });
+        
+        // Fetch the referenced events for accepted RSVPs
+        let referencedEvents: typeof busyEvents = [];
+        if (rsvpCoordinates.size > 0) {
+          
+          const filters = Array.from(rsvpCoordinates).map(coordinate => {
+            const [kindStr, referencedPubkey, referencedDTag] = coordinate.split(':');
+            return {
+              kinds: [parseInt(kindStr)],
+              authors: [referencedPubkey],
+              '#d': [referencedDTag],
+              limit: 1
+            };
+          });
+          
+          try {
+            const referencedQueryOptions = { ...queryOptions };
+            // For referenced events, we might need to check broader relay set
+            referencedEvents = await nostr.query(filters, referencedQueryOptions);
+          } catch (error) {
+            console.error('Failed to fetch RSVP referenced events:', error);
+          }
+        }
+        
+        // Combine all events (original busy events + referenced events)
+        const allBusyEvents = [...busyEvents, ...referencedEvents];
+        
+        
+        // Debug: Log details of referenced events
+        referencedEvents.forEach(event => {
+          const start = event.tags.find(t => t[0] === 'start')?.[1];
+          const end = event.tags.find(t => t[0] === 'end')?.[1];
+          const title = event.tags.find(t => t[0] === 'title')?.[1];
+        });
 
         const busyMap = new Map<string, { start: Date; end: Date }[]>();
-        busyEvents.forEach(busyEvent => {
+        allBusyEvents.forEach(busyEvent => {
+          let startDate: Date | null = null;
+          let endDate: Date | null = null;
+          
+          // Skip RSVPs themselves - their referenced events are already included in allBusyEvents
+          if (busyEvent.kind === 31925) {
+            return; // RSVPs don't have their own time, but their referenced events do
+          }
+          
           const start = busyEvent.tags.find(t => t[0] === 'start')?.[1];
           const end = busyEvent.tags.find(t => t[0] === 'end')?.[1];
-          if (start && end) {
+          
+          if (!start) return;
+          
+          if (busyEvent.kind === 31922) {
+            // Date-based event - dates are in YYYY-MM-DD format
+            startDate = new Date(start);
+            endDate = end ? new Date(end) : new Date(start);
+            
+            
+            // For date-based events, set times to cover the whole day
+            startDate.setHours(0, 0, 0, 0);
+            endDate.setHours(23, 59, 59, 999);
+            
+            // For multi-day events, add entries for each day
+            const currentDate = new Date(startDate);
+            while (currentDate <= endDate) {
+              const dateKey = format(currentDate, 'yyyy-MM-dd');
+              if (!busyMap.has(dateKey)) {
+                busyMap.set(dateKey, []);
+              }
+              // Add the whole day as busy
+              const dayStart = new Date(currentDate);
+              dayStart.setHours(0, 0, 0, 0);
+              const dayEnd = new Date(currentDate);
+              dayEnd.setHours(23, 59, 59, 999);
+              busyMap.get(dateKey)!.push({ start: dayStart, end: dayEnd });
+              
+              // Move to next day
+              currentDate.setDate(currentDate.getDate() + 1);
+            }
+            return;
+          } else if (busyEvent.kind === 31923 || busyEvent.kind === 31927) {
+            // Time-based event or availability block - timestamps in Unix seconds
             const startTimestamp = parseInt(start);
-            const endTimestamp = parseInt(end);
+            const endTimestamp = end ? parseInt(end) : startTimestamp + 3600; // Default 1 hour if no end
             
             // Validate timestamps
             if (isNaN(startTimestamp) || isNaN(endTimestamp)) {
-              return;
+                return;
             }
             
-            const startDate = new Date(startTimestamp * 1000);
-            const endDate = new Date(endTimestamp * 1000);
+            startDate = new Date(startTimestamp * 1000);
+            endDate = new Date(endTimestamp * 1000);
             
-            // Validate Date objects
-            if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-              return;
-            }
-            
+          }
+          
+          if (!startDate || !endDate) return;
+          
+          // Validate Date objects
+          if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+            return;
+          }
+          
+          // Handle multi-day time-based events
+          const startDay = new Date(startDate);
+          startDay.setHours(0, 0, 0, 0);
+          const endDay = new Date(endDate);
+          endDay.setHours(0, 0, 0, 0);
+          
+          if (startDay.getTime() === endDay.getTime()) {
+            // Single day event
             const dateKey = format(startDate, 'yyyy-MM-dd');
-            
             if (!busyMap.has(dateKey)) {
               busyMap.set(dateKey, []);
             }
             busyMap.get(dateKey)!.push({ start: startDate, end: endDate });
+          } else {
+            // Multi-day event - split across days
+            let currentDate = new Date(startDate);
+            
+            while (currentDate < endDate) {
+              const dateKey = format(currentDate, 'yyyy-MM-dd');
+              if (!busyMap.has(dateKey)) {
+                busyMap.set(dateKey, []);
+              }
+              
+              const dayStart = new Date(currentDate);
+              dayStart.setHours(0, 0, 0, 0);
+              const dayEnd = new Date(currentDate);
+              dayEnd.setHours(23, 59, 59, 999);
+              
+              // Determine the busy period for this day
+              const busyStart = currentDate > startDate ? dayStart : startDate;
+              const busyEnd = dayEnd < endDate ? dayEnd : endDate;
+              
+              busyMap.get(dateKey)!.push({ start: busyStart, end: busyEnd });
+              
+              // Move to next day
+              currentDate = new Date(dayStart);
+              currentDate.setDate(currentDate.getDate() + 1);
+            }
           }
         });
+        
+        
         setBusyTimes(busyMap);
 
         setStep('selecting');
@@ -170,8 +346,11 @@ export default function Booking() {
       return;
     }
 
+    // JavaScript getDay(): 0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday
+    // Convert to ISO-8601 day codes: MO, TU, WE, TH, FR, SA, SU
     const dayOfWeek = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][selectedDate.getDay()];
     const dayAvailability = template.availability[dayOfWeek] || [];
+    
     
     if (dayAvailability.length === 0) {
       setAvailableSlots([]);
@@ -249,11 +428,9 @@ export default function Booking() {
     setStep('confirming');
     
     try {
-      console.log('🔐 Creating private booking request');
       
       // Get calendar owner's relay preferences for broadcasting
       const ownerRelayPrefs = await getOwnerRelayPreferences(template.pubkey);
-      console.log('📡 Owner relay preferences:', ownerRelayPrefs);
       
       // Create private booking event (kind 31923) with both participants
       const participants = [template.pubkey]; // Calendar owner as participant
@@ -261,7 +438,6 @@ export default function Booking() {
       const bookingTitle = `Booking: ${template.title}`;
       const bookingDescription = `Booking request from ${participantName}${participantEmail ? ` (${participantEmail})` : ''}.\n\nMessage: ${bookingNote || 'No message'}`;
       
-      console.log('📅 Creating private time event with participants:', participants);
       
       // Create the private event with custom relay broadcasting
       await createPrivateBookingWithOwnerRelays({
@@ -275,14 +451,13 @@ export default function Booking() {
         ownerRelays: ownerRelayPrefs
       });
       
-      console.log('✅ Private booking request created and broadcasted to owner relays');
       
       // Note: The availability block (31927) should be created by the calendar owner
       // when they accept the booking, not by the requester
       
       setStep('success');
     } catch (err) {
-      console.error('❌ Booking failed:', err);
+      console.error('Booking failed:', err);
       setError('Failed to create booking. Please try again.');
       setStep('error');
     }
@@ -354,7 +529,6 @@ export default function Booking() {
       tags.push(['p', pubkey, '', 'participant']);
     });
 
-    console.log('🔨 Creating rumor with tags:', tags);
 
     // Create the unsigned calendar event (rumor)
     const { createRumor, createGiftWrapsForRecipients, extractParticipants, publishGiftWrapsToParticipants } = await import('@/utils/nip59');
@@ -367,21 +541,17 @@ export default function Booking() {
       created_at: Math.floor(Date.now() / 1000)
     }, user.signer);
 
-    console.log('📝 Created booking rumor:', rumor.id);
 
     // Extract all participants (including creator)
     const allParticipants = extractParticipants(rumor);
-    console.log('👥 All participants (including creator):', allParticipants);
 
     // Create gift wraps for all participants
-    console.log('🎁 Creating gift wraps for participants...');
     const giftWraps = await createGiftWrapsForRecipients(
       rumor,
       user.signer,
       allParticipants
     );
 
-    console.log('📦 Created gift wraps:', giftWraps.length, 'wraps');
 
     // Publish gift wraps to participants' relay preferences
     const publishResults = await publishGiftWrapsToParticipants(
@@ -390,7 +560,6 @@ export default function Booking() {
       getParticipantRelayPreferences
     );
     
-    console.log(`📊 Broadcast results: ${publishResults.successful} successful, ${publishResults.failed} failed`);
     
     if (publishResults.successful === 0) {
       throw new Error('Failed to broadcast booking to any relays');
@@ -412,6 +581,7 @@ export default function Booking() {
     const dayOfWeek = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][date.getDay()];
     const hasAvailability = (template.availability[dayOfWeek] || []).length > 0;
     
+    
     // Check max advance
     if (template.maxAdvance) {
       const now = new Date();
@@ -431,9 +601,10 @@ export default function Booking() {
         }
       } else {
         // Calendar days
-        const totalDays = template.maxAdvance / (24 * 60);
+        const totalDays = Math.floor(template.maxAdvance / (24 * 60));
         maxDate = addDays(now, totalDays);
       }
+      
       
       if (date > maxDate) {
         return false;

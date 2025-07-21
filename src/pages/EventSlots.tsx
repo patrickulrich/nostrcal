@@ -227,7 +227,7 @@ export default function EventSlots() {
       calendarRef: template.calendarRef || '',
       amount: template.amount || 0,
       minNotice: template.minNotice || 0,
-      maxAdvance: template.maxAdvance || 0,
+      maxAdvance: template.maxAdvance || 0, // Keep in minutes for internal storage
       maxAdvanceBusiness: template.maxAdvanceBusiness || false,
       availability: template.availability
     });
@@ -268,7 +268,8 @@ export default function EventSlots() {
         minNotice: formData.minNotice,
         maxAdvance: formData.maxAdvance,
         maxAdvanceBusiness: formData.maxAdvanceBusiness,
-        amount: formData.amount
+        amount: formData.amount,
+        dTag: editingTemplate?.dTag // Pass existing dTag when editing
       });
 
       toast({
@@ -642,14 +643,18 @@ export default function EventSlots() {
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="maxAdvance">Maximum Advance (minutes)</Label>
+                <Label htmlFor="maxAdvance">Maximum Advance (days)</Label>
                 <Input
                   id="maxAdvance"
                   type="number"
                   min="0"
-                  max="525600"
-                  value={formData.maxAdvance}
-                  onChange={(e) => setFormData(prev => ({ ...prev, maxAdvance: parseInt(e.target.value) || 0 }))}
+                  max="365"
+                  value={formData.maxAdvance ? Math.floor(formData.maxAdvance / 1440) : 0}
+                  onChange={(e) => {
+                    const days = parseInt(e.target.value) || 0;
+                    const minutes = days * 1440;
+                    setFormData(prev => ({ ...prev, maxAdvance: minutes }));
+                  }}
                 />
               </div>
             </div>

@@ -38,6 +38,7 @@ interface CreateAvailabilityTemplateData {
   maxAdvance?: number;
   maxAdvanceBusiness?: boolean;
   amount?: number;
+  dTag?: string; // Optional - if provided, will edit existing template instead of creating new
 }
 
 interface CreateRSVPData {
@@ -164,7 +165,7 @@ export function useCreateAvailabilityTemplate() {
         throw new Error('User not authenticated');
       }
 
-      const dTag = generateUUID();
+      const dTag = templateData.dTag || generateUUID();
       
       const interval = templateData.interval || templateData.duration; // Default interval to duration
       
@@ -188,11 +189,25 @@ export function useCreateAvailabilityTemplate() {
 
       // Add optional NIP-52 fields
       if (templateData.minNotice && templateData.minNotice > 0) {
-        tags.push(['min_notice', `PT${templateData.minNotice}M`]);
+        // Convert minutes to days and use period format (P{days}D) per NIP-52
+        const days = Math.floor(templateData.minNotice / (24 * 60));
+        if (days > 0) {
+          tags.push(['min_notice', `P${days}D`]);
+        } else {
+          // For less than a day, use PT format for hours/minutes
+          tags.push(['min_notice', `PT${templateData.minNotice}M`]);
+        }
       }
 
       if (templateData.maxAdvance && templateData.maxAdvance > 0) {
-        tags.push(['max_advance', `PT${templateData.maxAdvance}M`]);
+        // Convert minutes to days and use period format (P{days}D) per NIP-52
+        const days = Math.floor(templateData.maxAdvance / (24 * 60));
+        if (days > 0) {
+          tags.push(['max_advance', `P${days}D`]);
+        } else {
+          // For less than a day, use PT format for hours/minutes
+          tags.push(['max_advance', `PT${templateData.maxAdvance}M`]);
+        }
       }
 
       if (templateData.maxAdvanceBusiness) {

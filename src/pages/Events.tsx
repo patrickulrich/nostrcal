@@ -277,7 +277,8 @@ export default function Events() {
         eventId: selectedEvent.id,
         eventCoordinate,
         status,
-        freeText: undefined
+        freeText: undefined,
+        eventAuthorPubkey: selectedEvent.pubkey
       });
 
       setRsvpStatus(status);

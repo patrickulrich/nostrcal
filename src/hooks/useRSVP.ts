@@ -10,6 +10,7 @@ interface CreateRSVPOptions {
   eventCoordinate: string;
   status: RSVPStatus;
   freeText?: string;
+  eventAuthorPubkey?: string;
 }
 
 export function useCreateRSVP() {
@@ -24,19 +25,28 @@ export function useCreateRSVP() {
         throw new Error('No signer available');
       }
 
-      const { eventId, eventCoordinate, status, freeText } = options;
+      const { eventId, eventCoordinate, status, freeText, eventAuthorPubkey } = options;
 
       // Create RSVP event according to NIP-52
+      const tags = [
+        ['d', eventId], // Use event ID as the d tag
+        ['a', eventCoordinate], // Reference the calendar event
+        ['status', status],
+        ['L', 'status'],
+        ['l', status, 'status'],
+        // Add free/busy status based on RSVP status
+        ['fb', status === 'accepted' ? 'busy' : 'free']
+      ];
+
+      // Add event author pubkey if provided
+      if (eventAuthorPubkey) {
+        tags.push(['p', eventAuthorPubkey]);
+      }
+
       const rsvpEvent = {
         kind: 31925,
         content: freeText || '',
-        tags: [
-          ['d', eventId], // Use event ID as the d tag
-          ['a', eventCoordinate], // Reference the calendar event
-          ['status', status],
-          ['L', 'status'],
-          ['l', status, 'status']
-        ],
+        tags,
         created_at: Math.floor(Date.now() / 1000),
       };
 
