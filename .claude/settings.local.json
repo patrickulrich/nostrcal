@@ -8,7 +8,8 @@
       "Bash(grep:*)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(npm run test:*)",
-      "Bash(npm test)"
+      "Bash(npm test)",
+      "Bash(find:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

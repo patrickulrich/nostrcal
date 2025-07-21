@@ -4,6 +4,7 @@ import { useNostr } from '@nostrify/react';
 import { nip19 } from 'nostr-tools';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { usePrivateCalendarPublish } from '@/hooks/usePrivateCalendarPublish';
+import { useAppContext } from '@/hooks/useAppContext';
 // import { useRelayPreferences } from '@/hooks/useRelayPreferences';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -52,6 +53,7 @@ export default function Booking() {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const { publishPrivateTimeEvent: _publishPrivateTimeEvent, isPublishing } = usePrivateCalendarPublish();
+  const { config } = useAppContext();
   
   const [step, setStep] = useState<'loading' | 'selecting' | 'booking' | 'confirming' | 'success' | 'error'>('loading');
   const [template, setTemplate] = useState<AvailabilityTemplate | null>(null);
@@ -68,6 +70,7 @@ export default function Booking() {
   useEffect(() => {
     const loadTemplate = async () => {
       try {
+        (window as any).bookingStartTime = Date.now();
         const naddr = searchParams.get('naddr');
         if (!naddr) {
           setError('No booking link provided');
@@ -78,6 +81,41 @@ export default function Booking() {
         // Decode naddr
         const decoded = nip19.decode(naddr);
         
+        console.log('🔍 Debug: User authentication info:', {
+          currentUser: user ? {
+            pubkey: user.pubkey,
+            signerType: typeof user.signer,
+            signerConstructor: user.signer?.constructor.name
+          } : 'Not authenticated',
+          nostrInstance: !!nostr,
+          nostrDetails: {
+            relays: nostr?.relays ? Object.keys(nostr.relays) : 'No relays',
+            poolStats: nostr ? {
+              relayCount: Object.keys(nostr.relays || {}).length,
+              connectedRelays: Object.values(nostr.relays || {}).filter((r: any) => r.connected).length
+            } : 'No nostr instance'
+          }
+        });
+        
+        // Add app config debugging
+        console.log('🔍 Debug: App config relay settings:', {
+          configRelayUrls: config.relayUrls,
+          configRelayCount: config.relayUrls?.length,
+          enableAuth: config.enableAuth
+        });
+
+        // Remove artificial delays - let the query handle its own timing
+        
+        console.log('🔍 Debug: Initial relay status:', {
+          poolRelayUrls: nostr.relays ? Object.keys(nostr.relays) : 'No relays',
+          poolRelayStatus: nostr.relays ? Object.entries(nostr.relays).map(([url, relay]) => ({
+            url,
+            connected: (relay as any).connected,
+            readyState: (relay as any).socket?.readyState,
+            readyStateText: ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][(relay as any).socket?.readyState ?? 3]
+          })) : 'No relay details'
+        });
+        
         if (decoded.type !== 'naddr') {
           setError('Invalid booking link');
           setStep('error');
@@ -86,22 +124,91 @@ export default function Booking() {
 
         const { kind, pubkey, identifier } = decoded.data;
         
+        console.log('🔍 Debug: Decoded naddr data:', {
+          kind,
+          pubkey: pubkey.substring(0, 16) + '...',
+          identifier,
+          fullPubkey: pubkey
+        });
+        
         if (kind !== 31926) {
           setError('Invalid booking link type');
           setStep('error');
           return;
         }
 
-        // Fetch availability template
-        const signal = AbortSignal.timeout(5000);
-        const events = await nostr.query([{
+        // Remove artificial delays - let queries handle their own timing naturally
+        
+        // Fetch availability template with EOSE handling
+        console.log('🔍 Debug: Fetching template with EOSE fallback...');
+        
+        const templateFilter = {
           kinds: [31926],
           authors: [pubkey],
           '#d': [identifier],
           limit: 1
-        }], { signal });
+        };
+        
+        const subscription = nostr.req([templateFilter], { signal: AbortSignal.timeout(5000) });
+        
+        const events = await new Promise<any[]>((resolve, reject) => {
+          const events: any[] = [];
+          let completed = false;
+          
+          // 1 second timeout for single template lookup
+          const timeout = setTimeout(() => {
+            if (!completed) {
+              completed = true;
+              console.log('⏰ Debug: Template query timeout, found events:', events.length);
+              resolve(events);
+            }
+          }, 1000);
+          
+          const processSubscription = async () => {
+            try {
+              for await (const msg of subscription) {
+                if (completed) break;
+                
+                if (msg[0] === 'EVENT') {
+                  events.push(msg[2]);
+                  // For template lookup, complete immediately after finding the event
+                  if (events.length >= 1) {
+                    if (!completed) {
+                      completed = true;
+                      clearTimeout(timeout);
+                      console.log('✅ Debug: Template found immediately');
+                      resolve(events);
+                    }
+                    return;
+                  }
+                } else if (msg[0] === 'EOSE' || msg[0] === 'CLOSED') {
+                  if (!completed) {
+                    completed = true;
+                    clearTimeout(timeout);
+                    console.log('📡 Debug: Template query completed via', msg[0]);
+                    resolve(events);
+                  }
+                  return;
+                }
+              }
+            } catch (error) {
+              if (!completed) {
+                completed = true;
+                clearTimeout(timeout);
+                reject(error);
+              }
+            }
+          };
+          
+          processSubscription();
+        });
 
 
+        console.log('📋 Debug: Template query result:', {
+          eventsFound: events.length,
+          firstEvent: events[0] ? { id: events[0].id.substring(0, 8), kind: events[0].kind } : null
+        });
+        
         if (events.length === 0) {
           setError('Booking template not found');
           setStep('error');
@@ -112,22 +219,33 @@ export default function Booking() {
         const templateData = parseAvailabilityTemplate(event);
         setTemplate(templateData);
 
-        // First, fetch the calendar owner's relay preferences to know where to look for events
-        const relayPrefSignal = AbortSignal.timeout(5000);
+        // Skip relay preferences for now - they're timing out and returning empty
+        // Just use the default relays configured in the app
+        const skipRelayPrefs = true;
         
-        // Fetch general relays (10002)
-        const generalRelayEvents = await nostr.query([{
-          kinds: [10002],
-          authors: [pubkey],
-          limit: 1
-        }], { signal: relayPrefSignal });
+        let generalRelayEvents: any[] = [];
+        let privateRelayEvents: any[] = [];
         
-        // Fetch private relays (10050)
-        const privateRelayEvents = await nostr.query([{
-          kinds: [10050],
-          authors: [pubkey],
-          limit: 1
-        }], { signal: relayPrefSignal });
+        if (!skipRelayPrefs) {
+          // First, fetch the calendar owner's relay preferences to know where to look for events
+          // Run both queries in parallel with shorter timeout
+          const relayPrefSignal = AbortSignal.timeout(2000); // Reduce to 2 seconds
+          
+          // Fetch both relay types in parallel
+          [generalRelayEvents, privateRelayEvents] = await Promise.all([
+            nostr.query([{
+              kinds: [10002],
+              authors: [pubkey],
+              limit: 1
+            }], { signal: relayPrefSignal }).catch(() => []), // Return empty array on timeout
+            
+            nostr.query([{
+              kinds: [10050],
+              authors: [pubkey],
+              limit: 1
+            }], { signal: relayPrefSignal }).catch(() => []) // Return empty array on timeout
+          ]);
+        }
         
         // Extract relay URLs from both lists
         const generalRelays = generalRelayEvents.length > 0 
@@ -141,6 +259,17 @@ export default function Booking() {
         // Combine all relays (remove duplicates)
         const allOwnerRelays = [...new Set([...generalRelays, ...privateRelays])];
         
+        console.log('🔍 Debug: Relay preferences section completed:', {
+          totalElapsedTime: Date.now() - (window as any).bookingStartTime,
+          skippedRelayPrefs: skipRelayPrefs,
+          ownerPubkey: pubkey,
+          generalRelays,
+          privateRelays,
+          allOwnerRelays,
+          generalRelayEvents: generalRelayEvents.length,
+          privateRelayEvents: privateRelayEvents.length
+        });
+        
 
         // Now fetch all events that could block availability from the owner's relays:
         // - 31922: Date-based calendar events
@@ -148,19 +277,198 @@ export default function Booking() {
         // - 31925: RSVPs with "accepted" status
         // - 31927: Availability blocks (busy time)
         
-        // Query options with relay preferences if available
-        const queryOptions: { signal: AbortSignal; relays?: string[] } = { signal };
-        if (allOwnerRelays.length > 0) {
-          // Use the owner's relays if we found any
-          queryOptions.relays = allOwnerRelays;
-        } else {
+        // Separate relays by type for different auth strategies
+        const publicRelayUrls = generalRelays; // 10002 - public, no auth required
+        const privateRelayUrls = privateRelays; // 10050 - private, auth required
+        
+        console.log('🔍 Debug: Relay separation:', {
+          publicRelays: publicRelayUrls,
+          privateRelays: privateRelayUrls,
+          publicCount: publicRelayUrls.length,
+          privateCount: privateRelayUrls.length
+        });
+        
+        // Query options - use default reqRouter like calendar does  
+        // Use longer timeout for nsec authentication (30 seconds)
+        const busyEventsSignal = AbortSignal.timeout(30000);
+        const queryOptions: { signal: AbortSignal; relays?: string[] } = { signal: busyEventsSignal };
+        // Temporarily remove relay override to test if this fixes nsec authentication
+        // if (allOwnerRelays.length > 0) {
+        //   // Use the owner's relays if we found any
+        //   queryOptions.relays = allOwnerRelays;
+        // }
+        
+        console.log('🔍 Debug: Querying busy events with options:', {
+          queryOptions,
+          filterAuthors: [pubkey],
+          filterKinds: [31922, 31923, 31925, 31927],
+          hasRelaysInOptions: !!queryOptions.relays,
+          relaysInOptions: queryOptions.relays
+        });
+        
+        console.log('🔍 Debug: Nostr client details:', {
+          nostrClientType: nostr.constructor.name,
+          hasPool: true, // nostr IS the pool
+          poolType: nostr?.constructor.name,
+          defaultRelays: nostr.relays || 'No default relays property',
+          allNostrProperties: Object.keys(nostr || {}),
+          _relaysProperty: (nostr as any)._relays,
+          _relaysType: typeof (nostr as any)._relays,
+          _relaysLength: (nostr as any)._relays instanceof Map ? (nostr as any)._relays.size : 'Not a Map',
+          opts: (nostr as any).opts,
+          poolRelayUrls: nostr.relays ? Object.keys(nostr.relays) : 'No relays',
+          poolRelayDetails: nostr.relays ? Object.entries(nostr.relays).map(([url, relay]) => ({
+            url,
+            connected: (relay as any).connected,
+            readyState: (relay as any).socket?.readyState
+          })) : 'No relay details'
+        });
+        
+        // Debug: Test the reqRouter directly
+        console.log('🔍 Debug: Testing reqRouter behavior:', {
+          poolExists: !!nostr,
+          relayUrls: config.relayUrls,
+          testRouterCall: nostr ? 'Testing router...' : 'No pool to test'
+        });
+
+        if (nostr && (nostr as any).opts?.reqRouter) {
+          try {
+            const testFilters = [{ kinds: [31922, 31923, 31925, 31927], authors: [pubkey], limit: 500 }];
+            const routerResult = (nostr as any).opts.reqRouter(testFilters);
+            console.log('🔍 Debug: ReqRouter result:', {
+              routerResultType: typeof routerResult,
+              routerResultSize: routerResult instanceof Map ? routerResult.size : 'Not a Map',
+              routerResultKeys: routerResult instanceof Map ? Array.from(routerResult.keys()) : 'N/A',
+              routerResultValues: routerResult instanceof Map ? Array.from(routerResult.entries()).map(([k, v]) => ({key: k, valueLength: Array.isArray(v) ? v.length : 'Not array'})) : 'N/A'
+            });
+          } catch (routerError) {
+            console.error('❌ Debug: ReqRouter failed:', routerError);
+          }
+        }
+
+        let busyEvents: any[] = [];
+        
+        // Use standard query approach like calendar does - let reqRouter handle relay selection
+        try {
+          console.log('🔍 Debug: Query context comparison:', {
+            calendarOwnerPubkey: pubkey,
+            currentUserPubkey: user?.pubkey,
+            isQueryingForSelf: pubkey === user?.pubkey,
+            authMethod: user?.signer?.constructor.name,
+            poolRelays: nostr.relays ? Object.keys(nostr.relays) : 'No relays',
+            poolRelayCount: nostr.relays ? Object.keys(nostr.relays).length : 0,
+            queryOptions: queryOptions
+          });
+          
+          // Use streaming approach like calendar does instead of query()
+          console.log('🔄 Debug: Using streaming req() approach like calendar page...');
+          
+          const filter = {
+            kinds: [31922, 31923, 31925, 31927],
+            authors: [pubkey],
+            limit: 500
+          };
+          
+          console.log('📤 Debug: Sending subscription with filter:', {
+            filter,
+            authMethod: user?.signer?.constructor.name,
+            targetRelayCount: config.relayUrls?.length,
+            targetRelays: config.relayUrls,
+            queryOptions,
+            timestamp: Date.now()
+          });
+          
+          const events: any[] = [];
+          const subscription = nostr.req([filter], queryOptions);
+          
+          // 🔧 FIX: Handle missing EOSE for nsec authentication
+          // Use a race condition between subscription completion and timeout
+          const eventCollection = new Promise<any[]>((resolve, reject) => {
+            let eoseReceived = false;
+            let eventCount = 0;
+            
+            // Set up timeout fallback - preserve events even if no EOSE
+            const fallbackTimeout = setTimeout(() => {
+              if (!eoseReceived && eventCount > 0) {
+                console.log('⏰ Debug: Timeout reached with events, completing without EOSE:', {
+                  eventCount,
+                  authMethod: user?.signer?.constructor.name,
+                  events: events.map(e => ({kind: e.kind, id: e.id.substring(0, 8)}))
+                });
+                resolve(events);
+              } else if (!eoseReceived && eventCount === 0) {
+                console.log('⏰ Debug: Timeout reached with no events');
+                resolve([]);
+              }
+            }, 3000); // 3 second timeout - events arrive quickly, no need to wait long
+            
+            // Process subscription messages
+            const processSubscription = async () => {
+              try {
+                for await (const msg of subscription) {
+                  console.log('📡 Debug: Received relay message:', {
+                    type: msg[0],
+                    subscriptionId: msg[1],
+                    authMethod: user?.signer?.constructor.name,
+                    eventId: msg[0] === 'EVENT' ? msg[2]?.id?.substring(0, 8) : null,
+                    eventKind: msg[0] === 'EVENT' ? msg[2]?.kind : null
+                  });
+                  
+                  if (msg[0] === 'EVENT') {
+                    events.push(msg[2]);
+                    eventCount++;
+                  } else if (msg[0] === 'EOSE') {
+                    console.log('📡 Debug: Received EOSE, completing subscription');
+                    eoseReceived = true;
+                    clearTimeout(fallbackTimeout);
+                    resolve(events);
+                    return;
+                  } else if (msg[0] === 'CLOSED') {
+                    console.log('📡 Debug: Subscription closed, reason:', msg[2]);
+                    clearTimeout(fallbackTimeout);
+                    resolve(events);
+                    return;
+                  }
+                }
+              } catch (error) {
+                clearTimeout(fallbackTimeout);
+                reject(error);
+              }
+            };
+            
+            processSubscription().catch(reject);
+          });
+          
+          // Wait for either completion or timeout
+          const collectedEvents = await eventCollection;
+          
+          busyEvents = collectedEvents;
+          
+          console.log('✅ Debug: Standard query succeeded:', {
+            events: busyEvents.length,
+            eventKinds: busyEvents.map(e => e.kind),
+            poolRelays: nostr.relays ? Object.keys(nostr.relays) : 'No relays',
+            poolRelayCount: nostr.relays ? Object.keys(nostr.relays).length : 0
+          });
+        } catch (queryError) {
+          console.error('❌ Debug: Standard query failed:', queryError);
+          busyEvents = [];
         }
         
-        const busyEvents = await nostr.query([{
-          kinds: [31922, 31923, 31925, 31927],
-          authors: [pubkey],
-          limit: 500
-        }], queryOptions);
+        console.log('🔍 Debug: Busy events query result:', {
+          totalEvents: busyEvents.length,
+          eventsByKind: {
+            '31922': busyEvents.filter(e => e.kind === 31922).length,
+            '31923': busyEvents.filter(e => e.kind === 31923).length,
+            '31925': busyEvents.filter(e => e.kind === 31925).length,
+            '31927': busyEvents.filter(e => e.kind === 31927).length
+          },
+          sampleEvents: busyEvents.slice(0, 3).map(e => ({
+            kind: e.kind,
+            id: e.id.slice(0, 8),
+            tags: e.tags.length
+          }))
+        });
         
         
         // Extract coordinates from accepted RSVPs with fb:busy to fetch their referenced events
@@ -195,9 +503,69 @@ export default function Booking() {
           });
           
           try {
-            const referencedQueryOptions = { ...queryOptions };
-            // For referenced events, we might need to check broader relay set
-            referencedEvents = await nostr.query(filters, referencedQueryOptions);
+            // 🔧 FIX: Apply same EOSE handling for referenced events query
+            console.log('🔍 Debug: Querying referenced events with EOSE fallback:', {
+              filterCount: filters.length,
+              coordinates: Array.from(rsvpCoordinates)
+            });
+            
+            // Use streaming approach instead of query() to handle missing EOSE
+            const referencedEventsList: any[] = [];
+            
+            for (const filter of filters) {
+              const subscription = nostr.req([filter], { signal: AbortSignal.timeout(5000) });
+              
+              const eventCollection = new Promise<any[]>((resolve) => {
+                const events: any[] = [];
+                let completed = false;
+                
+                // Short timeout since we expect at most 1 event per filter
+                const timeout = setTimeout(() => {
+                  if (!completed) {
+                    completed = true;
+                    resolve(events);
+                  }
+                }, 1000); // 1 second timeout for single event lookups
+                
+                const processSubscription = async () => {
+                  try {
+                    for await (const msg of subscription) {
+                      if (completed) break;
+                      
+                      if (msg[0] === 'EVENT') {
+                        events.push(msg[2]);
+                      } else if (msg[0] === 'EOSE' || msg[0] === 'CLOSED') {
+                        if (!completed) {
+                          completed = true;
+                          clearTimeout(timeout);
+                          resolve(events);
+                        }
+                        return;
+                      }
+                    }
+                  } catch (error) {
+                    if (!completed) {
+                      completed = true;
+                      clearTimeout(timeout);
+                      resolve(events);
+                    }
+                  }
+                };
+                
+                processSubscription();
+              });
+              
+              const filterResults = await eventCollection;
+              referencedEventsList.push(...filterResults);
+            }
+            
+            referencedEvents = referencedEventsList;
+            
+            console.log('✅ Debug: Referenced events query completed:', {
+              foundEvents: referencedEvents.length,
+              events: referencedEvents.map(e => ({kind: e.kind, id: e.id.substring(0, 8)}))
+            });
+            
           } catch (error) {
             console.error('Failed to fetch RSVP referenced events:', error);
           }
@@ -215,6 +583,21 @@ export default function Booking() {
         });
 
         const busyMap = new Map<string, { start: Date; end: Date }[]>();
+        
+        console.log('🔍 Debug: Processing busy events for time blocking:', {
+          totalBusyEvents: allBusyEvents.length,
+          busyEventDetails: allBusyEvents.map(e => ({
+            kind: e.kind,
+            id: e.id.substring(0, 8),
+            pubkey: e.pubkey.substring(0, 8),
+            isCalendarOwner: e.pubkey === pubkey,
+            start: e.tags.find(t => t[0] === 'start')?.[1],
+            end: e.tags.find(t => t[0] === 'end')?.[1],
+            title: e.tags.find(t => t[0] === 'title')?.[1] || 'No title',
+            dTag: e.tags.find(t => t[0] === 'd')?.[1]
+          }))
+        });
+        
         allBusyEvents.forEach(busyEvent => {
           let startDate: Date | null = null;
           let endDate: Date | null = null;
