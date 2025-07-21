@@ -169,7 +169,7 @@ export function RelaySelector(props: RelaySelectorProps) {
                     key={option.url}
                     value={option.url}
                     onSelect={(currentValue) => {
-                      addRelay(normalizeRelayUrl(currentValue));
+                      addRelay(currentValue);
                       setOpen(false);
                       setInputValue("");
                     }}

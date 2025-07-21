@@ -42,20 +42,27 @@ export function RelayManager({ children }: { children: React.ReactNode }) {
       // User has published general relay list (kind 10002)
       const userRelayUrls = generalRelays.map(relay => relay.url);
       
-      // Only update if the relays are different from current config
-      const relaysChanged = userRelayUrls.length !== currentRelays.length ||
-        userRelayUrls.some(url => !currentRelays.includes(url));
-
-      if (relaysChanged) {
+      // Check if current relays are a superset of published relays
+      // This indicates user manually added relays beyond their published list
+      const currentIsSuperset = userRelayUrls.every(url => currentRelays.includes(url)) && 
+                               currentRelays.length >= userRelayUrls.length;
+      
+      // Only update if no manual configuration has been done yet
+      if (!hasUpdatedConfig.current) {
         lastConfiguredRelays.current = userRelayUrls;
         hasUpdatedConfig.current = true;
         updateConfig(prev => ({
           ...prev,
           relayUrls: userRelayUrls
         }));
+      } else if (currentIsSuperset && currentRelays.length > userRelayUrls.length) {
+        // User manually added relays beyond published list, preserve them
+        // Update our tracking to current relays to prevent future resets
+        lastConfiguredRelays.current = currentRelays;
       }
-    } else if (!hasGeneralRelays && !isLoading) {
-      // User doesn't have published relay list, ensure we're using defaults
+    } else if (!hasGeneralRelays && !isLoading && !hasUpdatedConfig.current) {
+      // Only set defaults if we haven't configured relays yet
+      // This prevents overriding manually added relays
       const defaultRelays = [
         "wss://relay.nostrcal.com",
         "wss://relay.primal.net",
@@ -63,16 +70,19 @@ export function RelayManager({ children }: { children: React.ReactNode }) {
         "wss://nos.lol"
       ];
       
-      const usingDefaults = defaultRelays.every(url => currentRelays.includes(url)) &&
-        currentRelays.length === defaultRelays.length;
+      const hasAnyRelays = currentRelays.length > 0;
 
-      if (!usingDefaults) {
+      if (!hasAnyRelays) {
         lastConfiguredRelays.current = defaultRelays;
         hasUpdatedConfig.current = true;
         updateConfig(prev => ({
           ...prev,
           relayUrls: defaultRelays
         }));
+      } else {
+        // Mark as configured to prevent future default overrides
+        hasUpdatedConfig.current = true;
+        lastConfiguredRelays.current = currentRelays;
       }
     }
   }, [user?.pubkey, hasGeneralRelays, generalRelays, isLoading, config.relayUrls, updateConfig]);
