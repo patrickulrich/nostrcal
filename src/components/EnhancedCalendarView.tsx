@@ -882,10 +882,10 @@ export default function EnhancedCalendarView() {
       // Private events
       privateDayEvents: privateEvents.filter(event => event.kind === 31922),
       privateTimeEvents: privateEvents.filter(event => event.kind === 31923),
-      privateRsvps: privateEvents.filter(event => event.kind === 31925),
+      privateRsvps: privateEvents.filter(event => event.kind === 31925 && event.rsvpStatus === 'accepted'),
 
-      // All RSVP events (kind 31925) regardless of time inheritance
-      allRsvpKind31925: calendarEvents.filter(event => event.kind === 31925)
+      // Only accepted RSVP events (kind 31925) should appear on calendar
+      allRsvpKind31925: calendarEvents.filter(event => event.kind === 31925 && event.rsvpStatus === 'accepted')
     };
   }, [calendarEvents]);
 

@@ -635,13 +635,13 @@ export default function CalendarView() {
       // Public events
       const dayEvents = publicEvents.filter(event => event.kind === 31922);
       const timeEvents = publicEvents.filter(event => event.kind === 31923);
-      const rsvpEvents = publicEvents.filter(event => event.kind === 31925);
+      const rsvpEvents = publicEvents.filter(event => event.kind === 31925 && event.rsvpStatus === 'accepted');
       const availabilityBlocks = publicEvents.filter(event => event.kind === 31927);
 
       // Private events
       const privateDayEvents = privateEvents.filter(event => event.kind === 31922);
       const privateTimeEvents = privateEvents.filter(event => event.kind === 31923);
-      const privateRsvps = privateEvents.filter(event => event.kind === 31925);
+      const privateRsvps = privateEvents.filter(event => event.kind === 31925 && event.rsvpStatus === 'accepted');
 
 
       eventsContext.setDayEvents(dayEvents);
