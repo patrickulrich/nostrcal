@@ -78,7 +78,20 @@ function EventCard({ event, onClick }: EventCardProps) {
       // Time-based event
       if (!event.start) return 'No time';
       const start = new Date(parseInt(event.start) * 1000);
-      return format(start, 'EEE, MMM d • h:mm a');
+      const startFormatted = format(start, 'EEE, MMM d • h:mm a');
+      
+      if (event.end) {
+        const end = new Date(parseInt(event.end) * 1000);
+        // If same day, only show end time
+        if (format(start, 'yyyy-MM-dd') === format(end, 'yyyy-MM-dd')) {
+          return `${startFormatted} - ${format(end, 'h:mm a')}`;
+        } else {
+          // Different days, show full end date/time
+          return `${startFormatted} - ${format(end, 'MMM d, h:mm a')}`;
+        }
+      }
+      
+      return startFormatted;
     }
   };
 
@@ -443,10 +456,48 @@ export default function Events() {
                           // Time-based event
                           selectedEvent.start ? (
                             <>
-                              {format(new Date(parseInt(selectedEvent.start) * 1000), 'EEEE, MMMM d, yyyy')}
-                              <br />
-                              {format(new Date(parseInt(selectedEvent.start) * 1000), 'h:mm a')}
-                              {selectedEvent.end && ` - ${format(new Date(parseInt(selectedEvent.end) * 1000), 'h:mm a')}`}
+                              {(() => {
+                                const startDate = new Date(parseInt(selectedEvent.start) * 1000);
+                                const endDate = selectedEvent.end ? new Date(parseInt(selectedEvent.end) * 1000) : null;
+                                const isSameDay = endDate && format(startDate, 'yyyy-MM-dd') === format(endDate, 'yyyy-MM-dd');
+                                
+                                if (!endDate) {
+                                  // No end time
+                                  return (
+                                    <>
+                                      {format(startDate, 'EEEE, MMMM d, yyyy')}
+                                      <br />
+                                      <span className="font-medium">
+                                        {format(startDate, 'h:mm a')}
+                                      </span>
+                                    </>
+                                  );
+                                } else if (isSameDay) {
+                                  // Same day event
+                                  return (
+                                    <>
+                                      {format(startDate, 'EEEE, MMMM d, yyyy')}
+                                      <br />
+                                      <span className="font-medium">
+                                        {format(startDate, 'h:mm a')} - {format(endDate, 'h:mm a')}
+                                      </span>
+                                    </>
+                                  );
+                                } else {
+                                  // Multi-day event
+                                  return (
+                                    <>
+                                      <div className="font-medium">
+                                        {format(startDate, 'EEEE, MMMM d, yyyy • h:mm a')}
+                                      </div>
+                                      <div className="text-muted-foreground">to</div>
+                                      <div className="font-medium">
+                                        {format(endDate, 'EEEE, MMMM d, yyyy • h:mm a')}
+                                      </div>
+                                    </>
+                                  );
+                                }
+                              })()}
                             </>
                           ) : 'No time'
                         )}

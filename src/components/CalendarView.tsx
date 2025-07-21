@@ -204,8 +204,16 @@ function WeekView() {
       // Time-based event
       if (!event.start) return false;
       
-      const eventDate = new Date(parseInt(event.start) * 1000);
-      return eventDate.toDateString() === date.toDateString();
+      const eventStart = new Date(parseInt(event.start) * 1000);
+      const eventEnd = event.end ? new Date(parseInt(event.end) * 1000) : eventStart;
+      
+      const dayStart = new Date(date);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(date);
+      dayEnd.setHours(23, 59, 59, 999);
+      
+      // Check if the event overlaps with this day
+      return eventStart <= dayEnd && eventEnd >= dayStart;
     }
   };
 
@@ -370,8 +378,16 @@ function MonthView() {
       // Time-based event
       if (!event.start) return false;
       
-      const eventDate = new Date(parseInt(event.start) * 1000);
-      return eventDate.toDateString() === date.toDateString();
+      const eventStart = new Date(parseInt(event.start) * 1000);
+      const eventEnd = event.end ? new Date(parseInt(event.end) * 1000) : eventStart;
+      
+      const dayStart = new Date(date);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(date);
+      dayEnd.setHours(23, 59, 59, 999);
+      
+      // Check if the event overlaps with this day
+      return eventStart <= dayEnd && eventEnd >= dayStart;
     }
   };
 
@@ -485,8 +501,16 @@ function DayView() {
       // Time-based event
       if (!event.start) return false;
       
-      const eventDate = new Date(parseInt(event.start) * 1000);
-      return eventDate.toDateString() === date.toDateString();
+      const eventStart = new Date(parseInt(event.start) * 1000);
+      const eventEnd = event.end ? new Date(parseInt(event.end) * 1000) : eventStart;
+      
+      const dayStart = new Date(date);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(date);
+      dayEnd.setHours(23, 59, 59, 999);
+      
+      // Check if the event overlaps with this day
+      return eventStart <= dayEnd && eventEnd >= dayStart;
     }
   };
 
