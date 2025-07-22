@@ -61,20 +61,27 @@ export async function createSeal(
 
 
   // Try to encrypt the rumor
-  // For extension signers, we might need to use NIP-04 or ask the user for encryption
+  
   try {
     // If signer has nip44 capability, use it
     if (signer.nip44?.encrypt) {
       unsignedSeal.content = await signer.nip44.encrypt(recipientPublicKeyHex, JSON.stringify(rumor));
     } else {
       // Fallback: we can't encrypt without access to private key
-      // This would require the user to provide their private key or use a different method
-      console.error('❌ Signer does not support NIP-44 encryption');
+      console.error('❌ Signer does not support NIP-44 encryption:', {
+        signerType: signer.constructor.name,
+        availableMethods: Object.keys(signer),
+        nip44Available: !!signer.nip44
+      });
       throw new Error('Signer does not support NIP-44 encryption');
     }
   } catch (error) {
     // If we can't encrypt, we need to handle this gracefully
-    console.error('Failed to encrypt rumor:', error);
+    console.error('Failed to encrypt rumor:', {
+      error,
+      signerType: signer.constructor.name,
+      errorMessage: error instanceof Error ? error.message : 'Unknown error'
+    });
     throw new Error('Unable to encrypt private event with this signer');
   }
 
@@ -107,7 +114,6 @@ export async function createGiftWrap(
   };
   
   const signedGiftWrap = finalizeEvent(giftWrapEvent, randomPrivateKey) as NostrEvent;
-  
   
   return signedGiftWrap;
 }
@@ -211,13 +217,20 @@ export async function createGiftWrapsForRecipients(
 ): Promise<NostrEvent[]> {
   const giftWraps: NostrEvent[] = [];
   
-  for (const recipientPubkey of recipientPublicKeys) {
+  for (let i = 0; i < recipientPublicKeys.length; i++) {
+    const recipientPubkey = recipientPublicKeys[i];
+    
     try {
       const seal = await createSeal(rumor, signer, recipientPubkey);
       const giftWrap = await createGiftWrap(seal, recipientPubkey, signer);
+      
       giftWraps.push(giftWrap);
     } catch (error) {
-      console.error(`Failed to create gift wrap for ${recipientPubkey}:`, error);
+      console.error(`❌ [createGiftWrapsForRecipients] Failed to create gift wrap for ${recipientPubkey.substring(0, 8)}:`, {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+        stack: error instanceof Error ? error.stack?.split('\n').slice(0, 3) : undefined
+      });
       // Continue with other recipients
     }
   }
@@ -241,11 +254,16 @@ export async function publishGiftWrapsToParticipants(
   let successCount = 0;
   let failCount = 0;
 
-  for (const giftWrap of giftWraps) {
+  for (let i = 0; i < giftWraps.length; i++) {
+    const giftWrap = giftWraps[i];
+    
     // Extract recipient pubkey from the gift wrap
     const recipientPubkey = giftWrap.tags.find(t => t[0] === 'p')?.[1];
     if (!recipientPubkey) {
-      console.error('Gift wrap missing recipient pubkey');
+      console.error(`❌ [publishGiftWrapsToParticipants] Gift wrap ${i + 1} missing recipient pubkey:`, {
+        giftWrapId: giftWrap.id.substring(0, 8),
+        tags: giftWrap.tags
+      });
       failCount++;
       continue;
     }
@@ -257,34 +275,55 @@ export async function publishGiftWrapsToParticipants(
         .filter(relay => relay.write !== false)
         .map(relay => relay.url);
 
+      if (writeRelays.length === 0) {
+        console.warn(`⚠️ [publishGiftWrapsToParticipants] No write relays found for ${recipientPubkey.substring(0, 8)}`);
+        failCount++;
+        continue;
+      }
 
       // Publish to each of the participant's relays
-      const publishPromises = writeRelays.map(async relayUrl => {
+      const publishPromises = writeRelays.map(async (relayUrl, _relayIndex) => {
         try {
+          const startTime = Date.now();
+          
           await nostr.event(giftWrap, { relays: [relayUrl] });
-          return true;
+          
+          const duration = Date.now() - startTime;
+          return { success: true, relayUrl, duration };
         } catch (err) {
-          console.warn(`Failed to publish to ${relayUrl}:`, err);
-          return false;
+          console.error(`❌ [publishGiftWrapsToParticipants] Failed to publish to ${relayUrl}:`, {
+            error: err instanceof Error ? err.message : 'Unknown error',
+            errorType: err instanceof Error ? err.constructor.name : typeof err,
+            recipientPubkey: recipientPubkey.substring(0, 8),
+            giftWrapId: giftWrap.id.substring(0, 8)
+          });
+          return { success: false, relayUrl, error: err };
         }
       });
 
       const results = await Promise.allSettled(publishPromises);
-      const relaySuccesses = results.filter(r => r.status === 'fulfilled' && r.value !== null).length;
+      const successfulPublishes = results.filter(r => 
+        r.status === 'fulfilled' && r.value && (r.value as any).success
+      );
       
-      if (relaySuccesses > 0) {
+      if (successfulPublishes.length > 0) {
         successCount++;
       } else {
         failCount++;
-        console.error(`Failed to publish to any relay for ${recipientPubkey}`);
+        console.error(`❌ [publishGiftWrapsToParticipants] Failed to publish to any relay for ${recipientPubkey.substring(0, 8)}`);
       }
     } catch (error) {
-      console.error(`Error publishing gift wrap for ${recipientPubkey}:`, error);
+      console.error(`❌ [publishGiftWrapsToParticipants] Error publishing gift wrap for ${recipientPubkey.substring(0, 8)}:`, {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+        stack: error instanceof Error ? error.stack : undefined
+      });
       failCount++;
     }
   }
 
-  return { successful: successCount, failed: failCount };
+  const finalResults = { successful: successCount, failed: failCount };
+  return finalResults;
 }
 
 /**

@@ -61,6 +61,7 @@ export function usePrivateCalendarEvents() {
           limit: 100 // Reduced limit for faster initial load
         };
 
+
         // Use memoized read relays from user's 10050 preferences
 
         const subscription = nostr.req([filter], { 
@@ -84,7 +85,6 @@ export function usePrivateCalendarEvents() {
         // ✅ CORRECT: Handle relay messages properly
         for await (const msg of subscription) {
           if (!isMounted) {
-            console.log('[usePrivateCalendarEvents] Component unmounted, breaking stream');
             break;
           }
           
@@ -110,7 +110,7 @@ export function usePrivateCalendarEvents() {
               try {
                 const rumor = await unwrapPrivateEventWithSigner(event, user.signer!);
                 
-                if (rumor && isCalendarRumor(rumor) && isMounted) {
+                if (rumor && rumor.id && isCalendarRumor(rumor) && isMounted) {
                   decryptedCount++;
                   
                   // Add the decrypted event immediately for real-time streaming

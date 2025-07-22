@@ -91,23 +91,27 @@ export function usePrivateCalendarPublish() {
       start,
       end,
       location,
+      locations,
       geohash,
       hashtags,
       references,
       participants,
+      participantsWithMetadata,
       dTag
     }: {
       title: string;
-      description: string;
+      description?: string; // Make optional to handle empty content
       summary?: string;
       image?: string;
       start: string; // YYYY-MM-DD format
       end?: string;
       location?: string;
+      locations?: string[];
       geohash?: string;
       hashtags?: string[];
       references?: string[];
-      participants: string[];
+      participants?: string[]; // backwards compatibility
+      participantsWithMetadata?: Array<{pubkey: string; relayUrl?: string; role?: string}>;
       dTag?: string;
     }) => {
       const tags = [
@@ -123,7 +127,16 @@ export function usePrivateCalendarPublish() {
       // Add NIP-52 optional tags
       if (summary) tags.push(['summary', summary]);
       if (image) tags.push(['image', image]);
-      if (location) tags.push(['location', location]);
+      
+      // Handle locations - support both single and multiple per NIP-52
+      if (locations && locations.length > 0) {
+        locations.forEach(loc => {
+          tags.push(['location', loc]);
+        });
+      } else if (location) {
+        tags.push(['location', location]);
+      }
+      
       if (geohash) tags.push(['g', geohash]);
       
       // Add hashtags
@@ -140,11 +153,16 @@ export function usePrivateCalendarPublish() {
         });
       }
 
+      // Determine participants for private event creation
+      const allParticipants = participantsWithMetadata 
+        ? participantsWithMetadata.map(p => p.pubkey)
+        : (participants || []);
+
       return publishPrivateEvent.mutateAsync({
         kind: 31922,
-        content: description,
+        content: description || '', // Ensure content is always a string
         tags,
-        participants
+        participants: allParticipants
       });
     },
     onSuccess: () => {
@@ -161,27 +179,31 @@ export function usePrivateCalendarPublish() {
       start,
       end,
       location,
+      locations,
       geohash,
       timezone,
       endTimezone,
       hashtags,
       references,
       participants,
+      participantsWithMetadata,
       dTag
     }: {
       title: string;
-      description: string;
+      description?: string; // Make optional to handle empty content
       summary?: string;
       image?: string;
       start: number; // Unix timestamp
       end?: number;
       location?: string;
+      locations?: string[];
       geohash?: string;
       timezone?: string;
       endTimezone?: string;
       hashtags?: string[];
       references?: string[];
-      participants: string[];
+      participants?: string[]; // backwards compatibility
+      participantsWithMetadata?: Array<{pubkey: string; relayUrl?: string; role?: string}>;
       dTag?: string;
     }) => {
       const tags = [
@@ -197,7 +219,16 @@ export function usePrivateCalendarPublish() {
       // Add NIP-52 optional tags
       if (summary) tags.push(['summary', summary]);
       if (image) tags.push(['image', image]);
-      if (location) tags.push(['location', location]);
+      
+      // Handle locations - support both single and multiple per NIP-52
+      if (locations && locations.length > 0) {
+        locations.forEach(loc => {
+          tags.push(['location', loc]);
+        });
+      } else if (location) {
+        tags.push(['location', location]);
+      }
+      
       if (geohash) tags.push(['g', geohash]);
       
       // Add hashtags
@@ -225,11 +256,16 @@ export function usePrivateCalendarPublish() {
         tags.push(['end_tzid', timezone]);
       }
 
+      // Determine participants for private event creation
+      const allParticipants = participantsWithMetadata 
+        ? participantsWithMetadata.map(p => p.pubkey)
+        : (participants || []);
+
       return publishPrivateEvent.mutateAsync({
         kind: 31923,
-        content: description,
+        content: description || '', // Ensure content is always a string (required for 31923)
         tags,
-        participants
+        participants: allParticipants
       });
     },
     onSuccess: () => {

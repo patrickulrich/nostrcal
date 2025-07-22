@@ -2,21 +2,29 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNostr } from '@nostrify/react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 
+interface Participant {
+  pubkey: string;
+  relayUrl?: string;
+  role?: string;
+}
+
 interface CreateCalendarEventData {
   kind: 31922 | 31923 | 31924 | 31925 | 31926 | 31927;
   title: string;
   summary?: string;
   image?: string;
-  start?: string;
-  end?: string;
-  location?: string;
+  start?: string | number; // string for 31922 (date), number for 31923/31927 (unix timestamp)
+  end?: string | number;
+  location?: string; // single location for backwards compatibility
+  locations?: string[]; // multiple locations per NIP-52
   geohash?: string;
   description?: string;
   timezone?: string;
   endTimezone?: string;
   hashtags?: string[];
   references?: string[];
-  participants?: string[];
+  participants?: string[]; // backwards compatibility
+  participantsWithMetadata?: Participant[]; // NIP-52 compliant participants
   tags?: string[][];
   isPrivate?: boolean;
   dTag?: string;
@@ -80,7 +88,18 @@ export function useCalendarPublish() {
       // Add common optional tags according to NIP-52
       if (eventData.summary) tags.push(['summary', eventData.summary]);
       if (eventData.image) tags.push(['image', eventData.image]);
-      if (eventData.location) tags.push(['location', eventData.location]);
+      
+      // Handle locations - support both single and multiple per NIP-52
+      if (eventData.locations && eventData.locations.length > 0) {
+        // Multiple locations (NIP-52 compliant)
+        eventData.locations.forEach(location => {
+          tags.push(['location', location]);
+        });
+      } else if (eventData.location) {
+        // Single location (backwards compatibility)
+        tags.push(['location', eventData.location]);
+      }
+      
       if (eventData.geohash) tags.push(['g', eventData.geohash]);
       
       // Add hashtags
@@ -97,8 +116,16 @@ export function useCalendarPublish() {
         });
       }
 
-      // Add participants
-      if (eventData.participants) {
+      // Add participants with proper metadata per NIP-52
+      if (eventData.participantsWithMetadata && eventData.participantsWithMetadata.length > 0) {
+        // NIP-52 compliant participants with roles and relay URLs
+        eventData.participantsWithMetadata.forEach(participant => {
+          const relayUrl = participant.relayUrl || '';
+          const role = participant.role || 'participant';
+          tags.push(['p', participant.pubkey, relayUrl, role]);
+        });
+      } else if (eventData.participants) {
+        // Backwards compatibility - convert simple strings to full participant objects
         eventData.participants.forEach(pubkey => {
           tags.push(['p', pubkey, '', 'participant']);
         });
@@ -106,13 +133,13 @@ export function useCalendarPublish() {
 
       // Add kind-specific tags
       if (eventData.kind === 31922) {
-        // Date-based event
-        if (eventData.start) tags.push(['start', eventData.start]);
-        if (eventData.end) tags.push(['end', eventData.end]);
+        // Date-based event (dates as strings YYYY-MM-DD)
+        if (eventData.start) tags.push(['start', eventData.start.toString()]);
+        if (eventData.end) tags.push(['end', eventData.end.toString()]);
       } else if (eventData.kind === 31923) {
-        // Time-based event
-        if (eventData.start) tags.push(['start', eventData.start]);
-        if (eventData.end) tags.push(['end', eventData.end]);
+        // Time-based event (unix timestamps as strings)
+        if (eventData.start) tags.push(['start', eventData.start.toString()]);
+        if (eventData.end) tags.push(['end', eventData.end.toString()]);
         if (eventData.timezone) {
           tags.push(['start_tzid', eventData.timezone]);
         }
@@ -123,9 +150,9 @@ export function useCalendarPublish() {
           tags.push(['end_tzid', eventData.timezone]);
         }
       } else if (eventData.kind === 31927) {
-        // Availability block (busy slot)
-        if (eventData.start) tags.push(['start', eventData.start]);
-        if (eventData.end) tags.push(['end', eventData.end]);
+        // Availability block (busy slot) (unix timestamps as strings)
+        if (eventData.start) tags.push(['start', eventData.start.toString()]);
+        if (eventData.end) tags.push(['end', eventData.end.toString()]);
       }
 
       // Add custom tags
@@ -138,7 +165,7 @@ export function useCalendarPublish() {
         kind: eventData.kind,
         created_at: Math.floor(Date.now() / 1000),
         tags,
-        content: eventData.description || '',
+        content: eventData.description || '', // Ensure content is always a string (required for 31923, should be description)
       };
 
       // Sign and publish the event

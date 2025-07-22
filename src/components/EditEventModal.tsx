@@ -11,7 +11,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { X, Plus, Loader2, Upload } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { X, Plus, Loader2, Upload, Users } from 'lucide-react';
+
+interface ParticipantWithRole {
+  pubkey: string;
+  relayUrl: string;
+  role: string;
+}
 
 interface EditEventModalProps {
   isOpen: boolean;
@@ -25,7 +32,7 @@ interface EventFormData {
   description: string;
   summary: string;
   image: string;
-  location: string;
+  locations: string[]; // Multiple locations support
   geohash: string;
   timezone: string;
   endTimezone: string;
@@ -33,10 +40,12 @@ interface EventFormData {
   endDate: string;
   startTime: string;
   endTime: string;
-  participants: string[];
+  participants: string[]; // backwards compatibility
+  participantsWithRoles: ParticipantWithRole[]; // NIP-52 compliant participants
   hashtags: string[];
   references: string[];
   isPrivate: boolean;
+  createBusySlot: boolean;
 }
 
 export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditEventModalProps) {
@@ -48,6 +57,9 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
 
   const [eventType, setEventType] = useState<'timed' | 'all-day'>('timed');
   const [participantInput, setParticipantInput] = useState('');
+  const [participantRoleInput, setParticipantRoleInput] = useState('participant');
+  const [participantRelayInput, setParticipantRelayInput] = useState('');
+  const [locationInput, setLocationInput] = useState('');
   const [hashtagInput, setHashtagInput] = useState('');
   const [referenceInput, setReferenceInput] = useState('');
   const [formData, setFormData] = useState<EventFormData>({
@@ -55,7 +67,7 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
     description: '',
     summary: '',
     image: '',
-    location: '',
+    locations: [],
     geohash: '',
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     endTimezone: '',
@@ -64,9 +76,11 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
     startTime: '',
     endTime: '',
     participants: [],
+    participantsWithRoles: [],
     hashtags: [],
     references: [],
     isPrivate: false,
+    createBusySlot: false,
   });
 
   // Populate form with event data when modal opens
@@ -106,7 +120,7 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
         description: event.description || event.content || '',
         summary: event.summary || '',
         image: event.image || '',
-        location: event.location || '',
+        locations: event.locations || (event.location ? [event.location] : []),
         geohash: event.geohash || '',
         timezone: event.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
         endTimezone: event.endTimezone || '',
@@ -115,6 +129,11 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
         startTime,
         endTime,
         participants: event.participants || [],
+        participantsWithRoles: (event.participantsWithMetadata || []).map(p => ({
+          pubkey: p.pubkey,
+          relayUrl: p.relayUrl || '',
+          role: p.role || 'participant'
+        })),
         hashtags: event.hashtags || [],
         references: event.references || [],
         // Check if event is from any private source
@@ -123,6 +142,7 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
                   event.source === 'privateTimeEvents' ||
                   event.source === 'privateRsvps' ||
                   false,
+        createBusySlot: false, // Default to false for editing
       });
     }
   }, [event, isOpen]);
@@ -133,6 +153,11 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
         ...prev,
         [field]: value
       };
+      
+      // Reset createBusySlot when switching from private to public
+      if (field === 'isPrivate' && !value) {
+        newData.createBusySlot = false;
+      }
       
       // Auto-set end time to 1 hour after start time for timed events
       if (eventType === 'timed' && (field === 'startTime' || field === 'startDate')) {
@@ -150,12 +175,34 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
   };
 
   const addParticipant = () => {
-    if (participantInput.trim() && !formData.participants.includes(participantInput.trim())) {
+    if (participantInput.trim()) {
+      const newParticipant: ParticipantWithRole = {
+        pubkey: participantInput.trim(),
+        relayUrl: participantRelayInput.trim(),
+        role: participantRoleInput.trim() || 'participant'
+      };
+      
+      // Check if participant already exists
+      if (!formData.participantsWithRoles.some(p => p.pubkey === newParticipant.pubkey)) {
+        setFormData(prev => ({
+          ...prev,
+          participantsWithRoles: [...prev.participantsWithRoles, newParticipant]
+        }));
+      }
+      
+      setParticipantInput('');
+      setParticipantRelayInput('');
+      setParticipantRoleInput('participant');
+    }
+  };
+
+  const addLocation = () => {
+    if (locationInput.trim() && !formData.locations.includes(locationInput.trim())) {
       setFormData(prev => ({
         ...prev,
-        participants: [...prev.participants, participantInput.trim()]
+        locations: [...prev.locations, locationInput.trim()]
       }));
-      setParticipantInput('');
+      setLocationInput('');
     }
   };
 
@@ -170,7 +217,7 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
     }
   };
 
-  const _addReference = () => {
+  const addReference = () => {
     if (referenceInput.trim() && !formData.references.includes(referenceInput.trim())) {
       setFormData(prev => ({
         ...prev,
@@ -183,7 +230,14 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
   const removeParticipant = (pubkey: string) => {
     setFormData(prev => ({
       ...prev,
-      participants: prev.participants.filter(p => p !== pubkey)
+      participantsWithRoles: prev.participantsWithRoles.filter(p => p.pubkey !== pubkey)
+    }));
+  };
+
+  const removeLocation = (location: string) => {
+    setFormData(prev => ({
+      ...prev,
+      locations: prev.locations.filter(l => l !== location)
     }));
   };
 
@@ -194,7 +248,7 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
     }));
   };
 
-  const _removeReference = (ref: string) => {
+  const removeReference = (ref: string) => {
     setFormData(prev => ({
       ...prev,
       references: prev.references.filter(r => r !== ref)
@@ -278,11 +332,12 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
             image: formData.image || undefined,
             start,
             end,
-            location: formData.location || undefined,
+            locations: formData.locations.length > 0 ? formData.locations : undefined,
             geohash: formData.geohash || undefined,
             hashtags: formData.hashtags.length > 0 ? formData.hashtags : undefined,
             references: formData.references.length > 0 ? formData.references : undefined,
-            participants: formData.participants,
+            participants: formData.participants, // backwards compatibility
+            participantsWithMetadata: formData.participantsWithRoles.length > 0 ? formData.participantsWithRoles : undefined,
             dTag: event.dTag // Use existing dTag to update the same event
           });
         } else {
@@ -293,15 +348,33 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
             image: formData.image || undefined,
             start: parseInt(start),
             end: parseInt(end),
-            location: formData.location || undefined,
+            locations: formData.locations.length > 0 ? formData.locations : undefined,
             geohash: formData.geohash || undefined,
             timezone: formData.timezone,
             endTimezone: formData.endTimezone || undefined,
             hashtags: formData.hashtags.length > 0 ? formData.hashtags : undefined,
             references: formData.references.length > 0 ? formData.references : undefined,
-            participants: formData.participants,
+            participants: formData.participants, // backwards compatibility
+            participantsWithMetadata: formData.participantsWithRoles.length > 0 ? formData.participantsWithRoles : undefined,
             dTag: event.dTag // Use existing dTag to update the same event
           });
+        }
+        
+        // Create busy slot for private events if enabled and this is a timed event
+        if (formData.createBusySlot && eventType === 'timed') {
+          try {
+            await publishEvent.mutateAsync({
+              kind: 31927,
+              title: '', // Busy slots don't need titles
+              start: parseInt(start), // Unix timestamp for busy slots
+              end: parseInt(end),
+              description: '', // Keep busy slots private - no details
+              isPrivate: false // Busy slots are always public so others can see availability
+            });
+          } catch (busySlotError) {
+            console.error('Failed to create busy slot for private event:', busySlotError);
+            // Don't fail the entire operation if busy slot creation fails
+          }
         }
       } else {
         await publishEvent.mutateAsync({
@@ -311,14 +384,15 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
           image: formData.image || undefined,
           start,
           end,
-          location: formData.location || undefined,
+          locations: formData.locations.length > 0 ? formData.locations : undefined,
           geohash: formData.geohash || undefined,
           description: formData.description || undefined,
           timezone: eventType === 'timed' ? formData.timezone : undefined,
           endTimezone: (eventType === 'timed' && formData.endTimezone) ? formData.endTimezone : undefined,
           hashtags: formData.hashtags.length > 0 ? formData.hashtags : undefined,
           references: formData.references.length > 0 ? formData.references : undefined,
-          participants: formData.participants.length > 0 ? formData.participants : undefined,
+          participants: formData.participants.length > 0 ? formData.participants : undefined, // backwards compatibility
+          participantsWithMetadata: formData.participantsWithRoles.length > 0 ? formData.participantsWithRoles : undefined,
           isPrivate: false,
           dTag: event.dTag // Use existing dTag to update the same event
         });
@@ -500,25 +574,49 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="summary">Summary</Label>
+            <div>
+              <Label htmlFor="summary">Summary</Label>
+              <Input
+                id="summary"
+                value={formData.summary}
+                onChange={(e) => handleInputChange('summary', e.target.value)}
+                placeholder="Brief summary"
+              />
+            </div>
+
+            {/* Locations */}
+            <div className="space-y-2">
+              <Label>Locations</Label>
+              <div className="flex gap-2">
                 <Input
-                  id="summary"
-                  value={formData.summary}
-                  onChange={(e) => handleInputChange('summary', e.target.value)}
-                  placeholder="Brief summary"
+                  value={locationInput}
+                  onChange={(e) => setLocationInput(e.target.value)}
+                  placeholder="Add location or URL"
+                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addLocation())}
                 />
+                <Button type="button" variant="outline" size="sm" onClick={addLocation}>
+                  <Plus className="h-4 w-4" />
+                </Button>
               </div>
-              <div>
-                <Label htmlFor="location">Location</Label>
-                <Input
-                  id="location"
-                  value={formData.location}
-                  onChange={(e) => handleInputChange('location', e.target.value)}
-                  placeholder="Event location"
-                />
-              </div>
+              
+              {formData.locations.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {formData.locations.map(location => (
+                    <Badge key={location} variant="secondary" className="flex items-center gap-1">
+                      📍 {location.length > 30 ? `${location.substring(0, 30)}...` : location}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-4 w-4 p-0 ml-1"
+                        onClick={() => removeLocation(location)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div>
@@ -575,27 +673,75 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
           </div>
 
           {/* Participants */}
-          <div>
+          <div className="space-y-4">
             <Label>Participants</Label>
-            <div className="flex gap-2 mb-2">
+            
+            {/* Participant Input */}
+            <div className="space-y-2">
               <Input
                 value={participantInput}
                 onChange={(e) => setParticipantInput(e.target.value)}
-                placeholder="npub1... or hex pubkey"
+                placeholder="Enter participant pubkey (npub or hex)"
                 onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addParticipant())}
               />
-              <Button type="button" onClick={addParticipant} size="sm">
-                <Plus className="h-4 w-4" />
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  value={participantRelayInput}
+                  onChange={(e) => setParticipantRelayInput(e.target.value)}
+                  placeholder="Relay URL (optional)"
+                />
+                <Select value={participantRoleInput} onValueChange={setParticipantRoleInput}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="participant">Participant</SelectItem>
+                    <SelectItem value="organizer">Organizer</SelectItem>
+                    <SelectItem value="required">Required</SelectItem>
+                    <SelectItem value="optional">Optional</SelectItem>
+                    <SelectItem value="speaker">Speaker</SelectItem>
+                    <SelectItem value="moderator">Moderator</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={addParticipant} className="w-full">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Participant
               </Button>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {formData.participants.map((participant) => (
-                <Badge key={participant} variant="secondary" className="flex items-center gap-1">
-                  {participant.slice(0, 12)}...
-                  <X className="h-3 w-3 cursor-pointer" onClick={() => removeParticipant(participant)} />
-                </Badge>
-              ))}
-            </div>
+            
+            {/* Participant List */}
+            {formData.participantsWithRoles.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-sm text-muted-foreground">Added Participants:</Label>
+                <div className="space-y-2">
+                  {formData.participantsWithRoles.map(participant => (
+                    <div key={participant.pubkey} className="flex items-center justify-between p-2 border rounded">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <Users className="h-4 w-4" />
+                          <span className="font-mono text-sm">{participant.pubkey.substring(0, 16)}...</span>
+                          <Badge variant="outline" className="text-xs">{participant.role}</Badge>
+                        </div>
+                        {participant.relayUrl && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            Relay: {participant.relayUrl}
+                          </div>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeParticipant(participant.pubkey)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Hashtags */}
@@ -621,6 +767,58 @@ export function EditEventModal({ isOpen, onClose, event, onEventUpdated }: EditE
               ))}
             </div>
           </div>
+
+          {/* References */}
+          <div className="space-y-2">
+            <Label>References & Links</Label>
+            <div className="flex gap-2">
+              <Input
+                value={referenceInput}
+                onChange={(e) => setReferenceInput(e.target.value)}
+                placeholder="Enter URL or reference"
+                onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addReference())}
+              />
+              <Button type="button" variant="outline" size="sm" onClick={addReference}>
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            {formData.references.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {formData.references.map(ref => (
+                  <Badge key={ref} variant="secondary" className="flex items-center gap-1">
+                    <span className="max-w-32 truncate">{ref}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-4 w-4 p-0 ml-1"
+                      onClick={() => removeReference(ref)}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Privacy Settings */}
+          {formData.isPrivate && (
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="create-busy-slot"
+                  checked={formData.createBusySlot}
+                  onCheckedChange={(checked) => handleInputChange('createBusySlot', checked)}
+                />
+                <Label htmlFor="create-busy-slot">Create busy slot</Label>
+              </div>
+              <p className="text-xs text-muted-foreground ml-6">
+                Creates a public availability block so others can't book this time slot (no event details shared)
+              </p>
+            </div>
+          )}
 
           {/* Submit */}
           <div className="flex justify-end gap-2">

@@ -16,14 +16,16 @@ export interface CalendarEvent {
   image?: string;
   start?: string;
   end?: string;
-  location?: string;
+  location?: string; // backwards compatibility
+  locations?: string[]; // NIP-52 multiple locations
   geohash?: string;
   description?: string;
   timezone?: string;
   endTimezone?: string;
   hashtags?: string[];
   references?: string[];
-  participants?: string[];
+  participants?: string[]; // backwards compatibility
+  participantsWithMetadata?: Array<{pubkey: string; relayUrl?: string; role?: string}>; // NIP-52 participant metadata
   
   // RSVP-specific properties
   needsTimeFromReference?: boolean;

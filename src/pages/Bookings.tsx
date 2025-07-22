@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNostr } from '@nostrify/react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useCreateRSVP, useCalendarPublish } from '@/hooks/useCalendarPublish';
@@ -160,28 +160,38 @@ interface BookingInvitation {
 export default function Bookings() {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
-  const createRSVP = useCreateRSVP();
+  const _createRSVP = useCreateRSVP();
   const publishEvent = useCalendarPublish();
   const { privateEvents, createPrivateRSVP, isCreatingRSVP: _isCreatingRSVP } = usePrivateCalendarEvents();
   
-  const [invitations, setInvitations] = useState<BookingInvitation[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Separate state for public events (loaded once)
+  const [publicEvents, setPublicEvents] = useState<{timeEvents: any[], dayEvents: any[], rsvps: any[]}>({
+    timeEvents: [], 
+    dayEvents: [], 
+    rsvps: []
+  });
+  const [publicLoading, setPublicLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentTab, setCurrentTab] = useState<'pending' | 'accepted' | 'declined'>('pending');
   const [respondingTo, setRespondingTo] = useState<string | null>(null);
 
+  // CONCERN 1: Load public events only once when user changes
   useEffect(() => {
-    if (!user?.pubkey) return;
+    if (!user?.pubkey) {
+      setPublicEvents({timeEvents: [], dayEvents: [], rsvps: []});
+      setPublicLoading(false);
+      return;
+    }
 
-    const loadInvitations = async () => {
+    const loadPublicEvents = async () => {
       try {
-        setLoading(true);
+        setPublicLoading(true);
         setError(null);
 
         const signal = AbortSignal.timeout(10000);
 
         // Load public calendar events where user is tagged as participant
-        const [timeEvents, dayEvents] = await Promise.all([
+        const [timeEvents, dayEvents, rsvps] = await Promise.all([
           nostr.query([{
             kinds: [31923], // Time-based events
             '#p': [user.pubkey],
@@ -191,158 +201,173 @@ export default function Bookings() {
             kinds: [31922], // Date-based events
             '#p': [user.pubkey],
             limit: 100
+          }], { signal }),
+          nostr.query([{
+            kinds: [31925], // User's public RSVPs
+            authors: [user.pubkey],
+            limit: 100
           }], { signal })
         ]);
 
-        // Load user's public RSVPs
-        const rsvps = await nostr.query([{
-          kinds: [31925],
-          authors: [user.pubkey],
-          limit: 100
-        }], { signal });
-
-        // Create RSVP map for quick lookup (both public and private)
-        const rsvpMap = new Map<string, string>();
-        rsvps.forEach(rsvp => {
-          const eventCoordinate = rsvp.tags.find(t => t[0] === 'a')?.[1];
-          const status = rsvp.tags.find(t => t[0] === 'status')?.[1];
-          if (eventCoordinate && status) {
-            rsvpMap.set(eventCoordinate, status);
-          }
-        });
-
-        // Also check private RSVPs from private events
-        privateEvents.filter(event => event.kind === 31925).forEach(rsvp => {
-          const eventCoordinate = rsvp.tags.find(t => t[0] === 'a')?.[1];
-          const status = rsvp.tags.find(t => t[0] === 'status')?.[1];
-          if (eventCoordinate && status) {
-            rsvpMap.set(eventCoordinate, status);
-          }
-        });
-
-        // Process invitations
-        const allInvitations: BookingInvitation[] = [];
-
-        // Process public time-based events
-        timeEvents.forEach(event => {
-          const dTag = event.tags.find(t => t[0] === 'd')?.[1];
-          if (!dTag) return;
-
-          // Skip events created by the current user
-          if (event.pubkey === user.pubkey) return;
-
-          const coordinate = `31923:${event.pubkey}:${dTag}`;
-          const status = rsvpMap.get(coordinate) as 'accepted' | 'declined' | 'tentative' | undefined;
-
-          const title = event.tags.find(t => t[0] === 'title')?.[1] || 'Untitled Event';
-          const start = event.tags.find(t => t[0] === 'start')?.[1];
-          const end = event.tags.find(t => t[0] === 'end')?.[1];
-          const location = event.tags.find(t => t[0] === 'location')?.[1];
-
-          if (start) {
-            allInvitations.push({
-              id: event.id,
-              eventId: event.id,
-              eventCoordinate: coordinate,
-              title,
-              start: new Date(parseInt(start) * 1000),
-              end: end ? new Date(parseInt(end) * 1000) : undefined,
-              location,
-              description: event.content,
-              organizerPubkey: event.pubkey,
-              status,
-              isAllDay: false,
-              created_at: event.created_at
-            });
-          }
-        });
-
-        // Process public date-based events
-        dayEvents.forEach(event => {
-          const dTag = event.tags.find(t => t[0] === 'd')?.[1];
-          if (!dTag) return;
-
-          // Skip events created by the current user
-          if (event.pubkey === user.pubkey) return;
-
-          const coordinate = `31922:${event.pubkey}:${dTag}`;
-          const status = rsvpMap.get(coordinate) as 'accepted' | 'declined' | 'tentative' | undefined;
-
-          const title = event.tags.find(t => t[0] === 'title')?.[1] || 'Untitled Event';
-          const start = event.tags.find(t => t[0] === 'start')?.[1];
-          const end = event.tags.find(t => t[0] === 'end')?.[1];
-          const location = event.tags.find(t => t[0] === 'location')?.[1];
-
-          if (start) {
-            allInvitations.push({
-              id: event.id,
-              eventId: event.id,
-              eventCoordinate: coordinate,
-              title,
-              start: new Date(start + 'T00:00:00'),
-              end: end ? new Date(end + 'T00:00:00') : undefined,
-              location,
-              description: event.content,
-              organizerPubkey: event.pubkey,
-              status,
-              isAllDay: true,
-              created_at: event.created_at
-            });
-          }
-        });
-
-        // Process private calendar events (gift-wrapped)
-        privateEvents.filter(event => 
-          (event.kind === 31922 || event.kind === 31923) && 
-          event.tags.some(t => t[0] === 'p' && t[1] === user.pubkey)
-        ).forEach(event => {
-          const dTag = event.tags.find(t => t[0] === 'd')?.[1];
-          if (!dTag) return;
-
-          // Skip events created by the current user
-          if (event.pubkey === user.pubkey) return;
-
-          const coordinate = `${event.kind}:${event.pubkey}:${dTag}`;
-          const status = rsvpMap.get(coordinate) as 'accepted' | 'declined' | 'tentative' | undefined;
-
-          const title = event.tags.find(t => t[0] === 'title')?.[1] || 'Private Event';
-          const start = event.tags.find(t => t[0] === 'start')?.[1];
-          const end = event.tags.find(t => t[0] === 'end')?.[1];
-          const location = event.tags.find(t => t[0] === 'location')?.[1];
-
-          if (start) {
-            const isTimeEvent = event.kind === 31923;
-            allInvitations.push({
-              id: event.id,
-              eventId: event.id,
-              eventCoordinate: coordinate,
-              title: `🔒 ${title}`, // Indicate private event
-              start: isTimeEvent ? new Date(parseInt(start) * 1000) : new Date(start + 'T00:00:00'),
-              end: end ? (isTimeEvent ? new Date(parseInt(end) * 1000) : new Date(end + 'T00:00:00')) : undefined,
-              location,
-              description: event.content,
-              organizerPubkey: event.pubkey,
-              status,
-              isAllDay: !isTimeEvent,
-              created_at: event.created_at
-            });
-          }
-        });
-
-        // Sort by start date (newest first)
-        allInvitations.sort((a, b) => b.start.getTime() - a.start.getTime());
-
-        setInvitations(allInvitations);
+        setPublicEvents({ timeEvents, dayEvents, rsvps });
       } catch (err) {
-        console.error('Failed to load invitations:', err);
+        console.error('Failed to load public events:', err);
         setError('Failed to load booking invitations');
       } finally {
-        setLoading(false);
+        setPublicLoading(false);
       }
     };
 
-    loadInvitations();
-  }, [user, nostr, privateEvents]);
+    loadPublicEvents();
+  }, [user?.pubkey, nostr]); // Only reload when user or nostr changes, NOT when privateEvents change
+
+  // CONCERN 3: Combine public + private data (no network calls, just processing)
+  const invitations = useMemo(() => {
+    if (!user?.pubkey) return [];
+
+    try {
+      // Create RSVP map for quick lookup (both public and private)
+      const rsvpMap = new Map<string, string>();
+      
+      // Add public RSVPs
+      publicEvents.rsvps.forEach(rsvp => {
+        const eventCoordinate = rsvp.tags.find(t => t[0] === 'a')?.[1];
+        const status = rsvp.tags.find(t => t[0] === 'status')?.[1];
+        if (eventCoordinate && status) {
+          rsvpMap.set(eventCoordinate, status);
+        }
+      });
+
+      // Add private RSVPs from private events
+      const privateRSVPs = privateEvents.filter(event => event.kind === 31925);
+      privateRSVPs.forEach(rsvp => {
+        const eventCoordinate = rsvp.tags.find(t => t[0] === 'a')?.[1];
+        const status = rsvp.tags.find(t => t[0] === 'status')?.[1];
+        if (eventCoordinate && status) {
+          rsvpMap.set(eventCoordinate, status);
+        }
+      });
+
+      const allInvitations: BookingInvitation[] = [];
+
+      // Process public time-based events
+      publicEvents.timeEvents.forEach(event => {
+        const dTag = event.tags.find(t => t[0] === 'd')?.[1];
+        if (!dTag) return;
+
+        // Skip events created by the current user
+        if (event.pubkey === user.pubkey) return;
+
+        const coordinate = `31923:${event.pubkey}:${dTag}`;
+        const status = rsvpMap.get(coordinate) as 'accepted' | 'declined' | 'tentative' | undefined;
+
+        const title = event.tags.find(t => t[0] === 'title')?.[1] || 'Untitled Event';
+        const start = event.tags.find(t => t[0] === 'start')?.[1];
+        const end = event.tags.find(t => t[0] === 'end')?.[1];
+        const location = event.tags.find(t => t[0] === 'location')?.[1];
+
+        if (start) {
+          allInvitations.push({
+            id: event.id,
+            eventId: event.id,
+            eventCoordinate: coordinate,
+            title,
+            start: new Date(parseInt(start) * 1000),
+            end: end ? new Date(parseInt(end) * 1000) : undefined,
+            location,
+            description: event.content,
+            organizerPubkey: event.pubkey,
+            status,
+            isAllDay: false,
+            created_at: event.created_at
+          });
+        }
+      });
+
+      // Process public date-based events
+      publicEvents.dayEvents.forEach(event => {
+        const dTag = event.tags.find(t => t[0] === 'd')?.[1];
+        if (!dTag) return;
+
+        // Skip events created by the current user
+        if (event.pubkey === user.pubkey) return;
+
+        const coordinate = `31922:${event.pubkey}:${dTag}`;
+        const status = rsvpMap.get(coordinate) as 'accepted' | 'declined' | 'tentative' | undefined;
+
+        const title = event.tags.find(t => t[0] === 'title')?.[1] || 'Untitled Event';
+        const start = event.tags.find(t => t[0] === 'start')?.[1];
+        const end = event.tags.find(t => t[0] === 'end')?.[1];
+        const location = event.tags.find(t => t[0] === 'location')?.[1];
+
+        if (start) {
+          allInvitations.push({
+            id: event.id,
+            eventId: event.id,
+            eventCoordinate: coordinate,
+            title,
+            start: new Date(start + 'T00:00:00'),
+            end: end ? new Date(end + 'T00:00:00') : undefined,
+            location,
+            description: event.content,
+            organizerPubkey: event.pubkey,
+            status,
+            isAllDay: true,
+            created_at: event.created_at
+          });
+        }
+      });
+
+      // Process private calendar events (gift-wrapped)
+      const privateCalendarEvents = privateEvents.filter(event => 
+        (event.kind === 31922 || event.kind === 31923) && 
+        event.tags.some(t => t[0] === 'p' && t[1] === user.pubkey)
+      );
+
+      privateCalendarEvents.forEach(event => {
+        const dTag = event.tags.find(t => t[0] === 'd')?.[1];
+        if (!dTag) return;
+
+        // Skip events created by the current user
+        if (event.pubkey === user.pubkey) return;
+
+        const coordinate = `${event.kind}:${event.pubkey}:${dTag}`;
+        const status = rsvpMap.get(coordinate) as 'accepted' | 'declined' | 'tentative' | undefined;
+
+        const title = event.tags.find(t => t[0] === 'title')?.[1] || 'Private Event';
+        const start = event.tags.find(t => t[0] === 'start')?.[1];
+        const end = event.tags.find(t => t[0] === 'end')?.[1];
+        const location = event.tags.find(t => t[0] === 'location')?.[1];
+
+        if (start) {
+          const isTimeEvent = event.kind === 31923;
+          allInvitations.push({
+            id: event.id,
+            eventId: event.id,
+            eventCoordinate: coordinate,
+            title: `🔒 ${title}`, // Indicate private event
+            start: isTimeEvent ? new Date(parseInt(start) * 1000) : new Date(start + 'T00:00:00'),
+            end: end ? (isTimeEvent ? new Date(parseInt(end) * 1000) : new Date(end + 'T00:00:00')) : undefined,
+            location,
+            description: event.content,
+            organizerPubkey: event.pubkey,
+            status,
+            isAllDay: !isTimeEvent,
+            created_at: event.created_at
+          });
+        }
+      });
+
+      // Sort by start date (newest first)
+      return allInvitations.sort((a, b) => b.start.getTime() - a.start.getTime());
+    } catch (err) {
+      console.error('Failed to process invitations:', err);
+      return [];
+    }
+  }, [user?.pubkey, publicEvents, privateEvents]); // Recalculate when either public or private data changes
+
+  // Combined loading state
+  const loading = publicLoading;
 
   const handleRSVP = async (invitation: BookingInvitation, status: 'accepted' | 'declined' | 'tentative') => {
     if (!user?.pubkey) return;
@@ -352,6 +377,9 @@ export default function Bookings() {
     try {
       // Check if this is a private event by looking for the 🔒 prefix
       const isPrivateEvent = invitation.title.startsWith('🔒');
+      
+      // All RSVPs on /bookings page should be gift wrapped (private)
+      // The only place we create public RSVPs is on /events page
       
       if (isPrivateEvent) {
         // For private events, find the original rumor event to send private RSVP
@@ -366,20 +394,37 @@ export default function Bookings() {
           throw new Error('Original private event not found');
         }
       } else {
-        // For public events, use regular RSVP
-        await createRSVP.mutateAsync({
-          eventCoordinate: invitation.eventCoordinate,
-          eventId: invitation.eventId,
-          status,
-          eventAuthorPubkey: invitation.organizerPubkey,
-          note: status === 'accepted' ? 'Looking forward to it!' : 'Sorry, I cannot attend.'
-        });
+        // For public events on /bookings, still use gift-wrapped RSVP
+        // We need to create a rumor from the public event to send private RSVP
+        const publicEvent = [...invitations].find(inv => inv.eventId === invitation.eventId);
+        if (publicEvent) {
+          // Create a rumor-like object from the public event data
+          const rumorFromPublicEvent = {
+            id: publicEvent.eventId,
+            kind: publicEvent.eventCoordinate.startsWith('31923:') ? 31923 : 31922,
+            pubkey: publicEvent.organizerPubkey,
+            created_at: publicEvent.created_at,
+            content: publicEvent.description || '',
+            tags: [
+              ['d', publicEvent.eventCoordinate.split(':')[2]],
+              ['title', publicEvent.title],
+              ['p', user.pubkey] // Include current user as participant
+            ]
+          };
+          
+          await createPrivateRSVP({
+            originalEvent: rumorFromPublicEvent,
+            status,
+            content: status === 'accepted' ? 'Looking forward to it!' : 'Sorry, I cannot attend.'
+          });
+        } else {
+          throw new Error('Original public event not found for gift wrapping');
+        }
       }
 
       // Auto-create busy block for accepted time-based events
       // Busy blocks (31927) are always public to show availability without revealing details
       if (status === 'accepted' && !invitation.isAllDay && invitation.start && invitation.end) {
-        console.log('🚫 Creating public busy block for accepted event');
         try {
           const startTimestamp = Math.floor(invitation.start.getTime() / 1000);
           const endTimestamp = Math.floor(invitation.end.getTime() / 1000);
@@ -392,17 +437,29 @@ export default function Bookings() {
             description: '', // Keep busy slots private - no details
             isPrivate: false // Busy slots are always public so others can see availability
           });
-          console.log('✅ Public busy block created for accepted booking');
         } catch (busyBlockError) {
           console.error('Failed to create busy block:', busyBlockError);
           // Don't fail the entire operation if busy block creation fails
         }
       }
 
-      // Update local state
-      setInvitations(prev => prev.map(inv => 
-        inv.id === invitation.id ? { ...inv, status } : inv
-      ));
+      // For public RSVPs, refresh the public RSVP data to pick up the new RSVP
+      // Private RSVPs will be picked up automatically when the private event stream updates
+      if (!isPrivateEvent) {
+        try {
+          const signal = AbortSignal.timeout(5000);
+          const rsvps = await nostr.query([{
+            kinds: [31925],
+            authors: [user.pubkey],
+            limit: 100
+          }], { signal });
+          
+          setPublicEvents(prev => ({ ...prev, rsvps }));
+        } catch (refreshError) {
+          console.error('Failed to refresh public RSVPs:', refreshError);
+          // Don't fail the entire operation for this
+        }
+      }
     } catch (err) {
       console.error('Failed to respond to invitation:', err);
       alert('Failed to send RSVP. Please try again.');

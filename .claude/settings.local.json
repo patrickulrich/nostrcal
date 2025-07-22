@@ -9,7 +9,8 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(npm run test:*)",
       "Bash(npm test)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(npm run lint)"
     ]
   },
   "enableAllProjectMcpServers": true,

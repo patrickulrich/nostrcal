@@ -16,12 +16,18 @@ import { Badge } from '@/components/ui/badge';
 import { Calendar, Clock, Users, X, Plus, Upload, Loader2, FileText } from 'lucide-react';
 import { parseICSFile, validateICSFile } from '@/utils/icsParser';
 
+interface ParticipantWithRole {
+  pubkey: string;
+  relayUrl: string;
+  role: string;
+}
+
 interface EventFormData {
   title: string;
   description: string;
   summary: string;
   image: string;
-  location: string;
+  locations: string[]; // Multiple locations support
   geohash: string;
   timezone: string;
   endTimezone: string;
@@ -29,7 +35,8 @@ interface EventFormData {
   endDate: string;
   startTime: string;
   endTime: string;
-  participants: string[];
+  participants: string[]; // backwards compatibility
+  participantsWithRoles: ParticipantWithRole[]; // NIP-52 compliant participants
   hashtags: string[];
   references: string[];
   isPrivate: boolean;
@@ -47,6 +54,9 @@ export default function NewEvent() {
 
   const [eventType, setEventType] = useState<'timed' | 'all-day'>('timed');
   const [participantInput, setParticipantInput] = useState('');
+  const [participantRoleInput, setParticipantRoleInput] = useState('participant');
+  const [participantRelayInput, setParticipantRelayInput] = useState('');
+  const [locationInput, setLocationInput] = useState('');
   const [hashtagInput, setHashtagInput] = useState('');
   const [referenceInput, setReferenceInput] = useState('');
   const [isImporting, setIsImporting] = useState(false);
@@ -56,7 +66,7 @@ export default function NewEvent() {
     description: '',
     summary: '',
     image: '',
-    location: '',
+    locations: [],
     geohash: '',
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     endTimezone: '',
@@ -65,6 +75,7 @@ export default function NewEvent() {
     startTime: '',
     endTime: '',
     participants: [],
+    participantsWithRoles: [],
     hashtags: [],
     references: [],
     isPrivate: true, // Changed: Default to private
@@ -99,12 +110,34 @@ export default function NewEvent() {
   };
 
   const addParticipant = () => {
-    if (participantInput.trim() && !formData.participants.includes(participantInput.trim())) {
+    if (participantInput.trim()) {
+      const newParticipant: ParticipantWithRole = {
+        pubkey: participantInput.trim(),
+        relayUrl: participantRelayInput.trim(),
+        role: participantRoleInput.trim() || 'participant'
+      };
+      
+      // Check if participant already exists
+      if (!formData.participantsWithRoles.some(p => p.pubkey === newParticipant.pubkey)) {
+        setFormData(prev => ({
+          ...prev,
+          participantsWithRoles: [...prev.participantsWithRoles, newParticipant]
+        }));
+      }
+      
+      setParticipantInput('');
+      setParticipantRelayInput('');
+      setParticipantRoleInput('participant');
+    }
+  };
+
+  const addLocation = () => {
+    if (locationInput.trim() && !formData.locations.includes(locationInput.trim())) {
       setFormData(prev => ({
         ...prev,
-        participants: [...prev.participants, participantInput.trim()]
+        locations: [...prev.locations, locationInput.trim()]
       }));
-      setParticipantInput('');
+      setLocationInput('');
     }
   };
 
@@ -132,7 +165,14 @@ export default function NewEvent() {
   const removeParticipant = (pubkey: string) => {
     setFormData(prev => ({
       ...prev,
-      participants: prev.participants.filter(p => p !== pubkey)
+      participantsWithRoles: prev.participantsWithRoles.filter(p => p.pubkey !== pubkey)
+    }));
+  };
+
+  const removeLocation = (location: string) => {
+    setFormData(prev => ({
+      ...prev,
+      locations: prev.locations.filter(l => l !== location)
     }));
   };
 
@@ -178,7 +218,7 @@ export default function NewEvent() {
         title: firstEvent.title,
         description: firstEvent.description,
         summary: '', // ICS doesn't have a separate summary field
-        location: firstEvent.location,
+        locations: firstEvent.location ? [firstEvent.location] : [],
         timezone: firstEvent.timezone || prev.timezone,
         startDate: firstEvent.startDate,
         endDate: firstEvent.endDate,
@@ -262,20 +302,22 @@ export default function NewEvent() {
     }
 
     try {
-      let start: string;
-      let end: string;
+      let start: string | number;
+      let end: string | number;
 
       if (eventType === 'all-day') {
+        // Date-based events use YYYY-MM-DD strings
         start = formData.startDate;
         end = formData.endDate || formData.startDate;
       } else {
+        // Time-based events use unix timestamps (numbers)
         const startDateTime = new Date(`${formData.startDate}T${formData.startTime}`);
         const endDateTime = formData.endDate && formData.endTime
           ? new Date(`${formData.endDate}T${formData.endTime}`)
           : new Date(startDateTime.getTime() + 60 * 60 * 1000); // Default 1 hour
 
-        start = Math.floor(startDateTime.getTime() / 1000).toString();
-        end = Math.floor(endDateTime.getTime() / 1000).toString();
+        start = Math.floor(startDateTime.getTime() / 1000);
+        end = Math.floor(endDateTime.getTime() / 1000);
       }
 
       if (formData.isPrivate) {
@@ -283,32 +325,34 @@ export default function NewEvent() {
         if (eventType === 'all-day') {
           await publishPrivateDateEvent({
             title: formData.title,
-            description: formData.description,
+            description: formData.description || undefined,
             summary: formData.summary || undefined,
             image: formData.image || undefined,
-            start,
-            end,
-            location: formData.location || undefined,
+            start: start as string, // ISO 8601 date string (YYYY-MM-DD) for kind 31922
+            end: end as string,
+            locations: formData.locations.length > 0 ? formData.locations : undefined,
             geohash: formData.geohash || undefined,
             hashtags: formData.hashtags.length > 0 ? formData.hashtags : undefined,
             references: formData.references.length > 0 ? formData.references : undefined,
-            participants: formData.participants
+            participants: formData.participants, // backwards compatibility
+            participantsWithMetadata: formData.participantsWithRoles.length > 0 ? formData.participantsWithRoles : undefined
           });
         } else {
           await publishPrivateTimeEvent({
             title: formData.title,
-            description: formData.description,
+            description: formData.description || undefined,
             summary: formData.summary || undefined,
             image: formData.image || undefined,
-            start: parseInt(start),
-            end: parseInt(end),
-            location: formData.location || undefined,
+            start: start as number, // Already a number for timed events
+            end: end as number,
+            locations: formData.locations.length > 0 ? formData.locations : undefined,
             geohash: formData.geohash || undefined,
             timezone: formData.timezone,
             endTimezone: formData.endTimezone || undefined,
             hashtags: formData.hashtags.length > 0 ? formData.hashtags : undefined,
             references: formData.references.length > 0 ? formData.references : undefined,
-            participants: formData.participants
+            participants: formData.participants, // backwards compatibility
+            participantsWithMetadata: formData.participantsWithRoles.length > 0 ? formData.participantsWithRoles : undefined
           });
         }
         
@@ -318,8 +362,8 @@ export default function NewEvent() {
             await publishEvent.mutateAsync({
               kind: 31927,
               title: '', // Busy slots don't need titles
-              start,
-              end,
+              start: start as number, // Unix timestamp for busy slots
+              end: end as number,
               description: '', // Keep busy slots private - no details
               isPrivate: false // Busy slots are always public so others can see availability
             });
@@ -337,19 +381,20 @@ export default function NewEvent() {
           image: formData.image || undefined,
           start,
           end,
-          location: formData.location || undefined,
+          locations: formData.locations.length > 0 ? formData.locations : undefined,
           geohash: formData.geohash || undefined,
           description: formData.description || undefined,
           timezone: eventType === 'timed' ? formData.timezone : undefined,
           endTimezone: (eventType === 'timed' && formData.endTimezone) ? formData.endTimezone : undefined,
           hashtags: formData.hashtags.length > 0 ? formData.hashtags : undefined,
           references: formData.references.length > 0 ? formData.references : undefined,
-          participants: formData.participants.length > 0 ? formData.participants : undefined,
+          participants: formData.participants.length > 0 ? formData.participants : undefined, // backwards compatibility
+          participantsWithMetadata: formData.participantsWithRoles.length > 0 ? formData.participantsWithRoles : undefined,
           isPrivate: false
         });
       }
 
-      navigate('/');
+      navigate('/calendar');
     } catch (error) {
       console.error('Failed to create event:', error);
       alert('Failed to create event. Please try again.');
@@ -548,14 +593,39 @@ export default function NewEvent() {
                   </div>
                 </div>
 
+                {/* Locations */}
                 <div className="space-y-2">
-                  <Label htmlFor="location">Location</Label>
-                  <Input
-                    id="location"
-                    value={formData.location}
-                    onChange={(e) => handleInputChange('location', e.target.value)}
-                    placeholder="Enter location or URL"
-                  />
+                  <Label>Locations</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={locationInput}
+                      onChange={(e) => setLocationInput(e.target.value)}
+                      placeholder="Add location or URL"
+                      onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addLocation())}
+                    />
+                    <Button type="button" variant="outline" size="sm" onClick={addLocation}>
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  
+                  {formData.locations.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {formData.locations.map(location => (
+                        <Badge key={location} variant="secondary" className="flex items-center gap-1">
+                          📍 {location.length > 30 ? `${location.substring(0, 30)}...` : location}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-4 w-4 p-0 ml-1"
+                            onClick={() => removeLocation(location)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -676,37 +746,73 @@ export default function NewEvent() {
             </Tabs>
 
             {/* Participants */}
-            <div className="space-y-2">
+            <div className="space-y-4">
               <Label>Participants</Label>
-              <div className="flex gap-2">
+              
+              {/* Participant Input */}
+              <div className="space-y-2">
                 <Input
                   value={participantInput}
                   onChange={(e) => setParticipantInput(e.target.value)}
                   placeholder="Enter participant pubkey (npub or hex)"
                   onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addParticipant())}
                 />
-                <Button type="button" variant="outline" size="sm" onClick={addParticipant}>
-                  <Plus className="h-4 w-4" />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    value={participantRelayInput}
+                    onChange={(e) => setParticipantRelayInput(e.target.value)}
+                    placeholder="Relay URL (optional)"
+                  />
+                  <Select value={participantRoleInput} onValueChange={setParticipantRoleInput}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="participant">Participant</SelectItem>
+                      <SelectItem value="organizer">Organizer</SelectItem>
+                      <SelectItem value="required">Required</SelectItem>
+                      <SelectItem value="optional">Optional</SelectItem>
+                      <SelectItem value="speaker">Speaker</SelectItem>
+                      <SelectItem value="moderator">Moderator</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={addParticipant} className="w-full">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Participant
                 </Button>
               </div>
               
-              {formData.participants.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {formData.participants.map(pubkey => (
-                    <Badge key={pubkey} variant="secondary" className="flex items-center gap-1">
-                      <Users className="h-3 w-3" />
-                      {pubkey.substring(0, 8)}...
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-4 w-4 p-0 ml-1"
-                        onClick={() => removeParticipant(pubkey)}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </Badge>
-                  ))}
+              {/* Participant List */}
+              {formData.participantsWithRoles.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-sm text-muted-foreground">Added Participants:</Label>
+                  <div className="space-y-2">
+                    {formData.participantsWithRoles.map(participant => (
+                      <div key={participant.pubkey} className="flex items-center justify-between p-2 border rounded">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <Users className="h-4 w-4" />
+                            <span className="font-mono text-sm">{participant.pubkey.substring(0, 16)}...</span>
+                            <Badge variant="outline" className="text-xs">{participant.role}</Badge>
+                          </div>
+                          {participant.relayUrl && (
+                            <div className="text-xs text-muted-foreground mt-1">
+                              Relay: {participant.relayUrl}
+                            </div>
+                          )}
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeParticipant(participant.pubkey)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -819,7 +925,7 @@ export default function NewEvent() {
               <Button 
                 type="button" 
                 variant="outline"
-                onClick={() => navigate('/')}
+                onClick={() => navigate('/calendar')}
               >
                 Cancel
               </Button>

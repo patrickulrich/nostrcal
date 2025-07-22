@@ -28,7 +28,6 @@ export class AuthSessionManager {
     const expired = (now - session.timestamp) > this.SESSION_DURATION;
     
     if (expired) {
-      console.log('🕒 [AuthSession] Session expired for:', normalized);
       this.invalidateSession(normalized);
       return false;
     }
@@ -44,7 +43,6 @@ export class AuthSessionManager {
     
     // Check if we have a valid session
     if (this.hasValidSession(normalized)) {
-      console.log('🔄 [AuthSession] Using cached session for:', normalized);
       return null; // No auth needed - session valid
     }
     
@@ -61,11 +59,6 @@ export class AuthSessionManager {
       throw new Error(`Max authentication attempts (${this.MAX_ATTEMPTS}) reached for ${normalized}`);
     }
 
-    console.log('🔐 [AuthSession] Authenticating:', {
-      url: normalized,
-      attempt: session.attempts + 1,
-      challenge: challenge.substring(0, 20) + '...'
-    });
 
     try {
       const authEvent = await createAuthEvent(challenge, normalized, signer);
@@ -80,7 +73,6 @@ export class AuthSessionManager {
         lastChallenge: challenge
       });
       
-      console.log('✅ [AuthSession] Authentication successful:', normalized);
       return authEvent;
       
     } catch (error) {
@@ -115,7 +107,6 @@ export class AuthSessionManager {
         valid: false,
         timestamp: Date.now()
       });
-      console.log('❌ [AuthSession] Invalidated session for:', normalized);
     }
   }
 
@@ -141,7 +132,6 @@ export class AuthSessionManager {
     for (const [url, session] of this.sessions.entries()) {
       if ((now - session.timestamp) > this.SESSION_DURATION) {
         this.sessions.delete(url);
-        console.log('🧹 [AuthSession] Cleaned up expired session:', url);
       }
     }
   }
@@ -150,7 +140,6 @@ export class AuthSessionManager {
    * Reset all sessions (useful for login/logout)
    */
   reset(): void {
-    console.log('🔄 [AuthSession] Resetting all sessions');
     this.sessions.clear();
   }
 }
