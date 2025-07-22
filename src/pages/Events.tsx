@@ -23,6 +23,7 @@ import {
   Tag,
   Globe,
   X,
+  Video,
   ExternalLink
 } from 'lucide-react';
 import { format, isAfter, isBefore, isToday, addDays } from 'date-fns';
@@ -59,9 +60,10 @@ interface CalendarEvent {
 interface EventCardProps {
   event: CalendarEvent;
   onClick: () => void;
+  isOnlineLocation: (location: string | undefined) => boolean;
 }
 
-function EventCard({ event, onClick }: EventCardProps) {
+function EventCard({ event, onClick, isOnlineLocation }: EventCardProps) {
   const author = useAuthor(event.pubkey);
   const metadata = author.data?.metadata;
 
@@ -138,7 +140,11 @@ function EventCard({ event, onClick }: EventCardProps) {
       <CardContent className="space-y-3">
         {event.location && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <MapPin className="h-4 w-4 shrink-0" />
+            {isOnlineLocation(event.location) ? (
+              <Video className="h-4 w-4 shrink-0" />
+            ) : (
+              <MapPin className="h-4 w-4 shrink-0" />
+            )}
             <span className="truncate">{event.location}</span>
           </div>
         )}
@@ -201,8 +207,16 @@ export default function Events() {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'week' | 'upcoming'>('upcoming');
+  const [locationFilter, setLocationFilter] = useState<'all' | 'online' | 'in-person'>('all');
   const [rsvpStatus, setRsvpStatus] = useState<RSVPStatus | null>(null);
   const existingRSVP = useRSVPStatus(selectedEvent?.id || '');
+
+  // Helper function to determine if location is online (contains hyperlink)
+  const isOnlineLocation = (location: string | undefined): boolean => {
+    if (!location) return false;
+    // Check if location contains URL patterns
+    return /^(https?:\/\/|www\.)/.test(location.trim());
+  };
 
   // Process events to extract hashtags and images
   const processedEvents = events?.map(event => {
@@ -242,6 +256,17 @@ export default function Events() {
     // Tag filter
     if (selectedTag && !event.hashtags?.includes(selectedTag)) {
       return false;
+    }
+
+    // Location filter
+    if (locationFilter !== 'all') {
+      const isOnline = isOnlineLocation(event.location);
+      if (locationFilter === 'online' && !isOnline) {
+        return false;
+      }
+      if (locationFilter === 'in-person' && isOnline) {
+        return false;
+      }
     }
 
     // Time filter
@@ -343,7 +368,7 @@ export default function Events() {
 
         {/* Filters */}
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-col lg:flex-row gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -355,14 +380,24 @@ export default function Events() {
               />
             </div>
             
-            <Tabs value={timeFilter} onValueChange={(value) => setTimeFilter(value as 'all' | 'today' | 'week' | 'upcoming')}>
-              <TabsList>
-                <TabsTrigger value="all">All</TabsTrigger>
-                <TabsTrigger value="today">Today</TabsTrigger>
-                <TabsTrigger value="week">This Week</TabsTrigger>
-                <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Tabs value={timeFilter} onValueChange={(value) => setTimeFilter(value as 'all' | 'today' | 'week' | 'upcoming')}>
+                <TabsList>
+                  <TabsTrigger value="all">All</TabsTrigger>
+                  <TabsTrigger value="today">Today</TabsTrigger>
+                  <TabsTrigger value="week">This Week</TabsTrigger>
+                  <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              
+              <Tabs value={locationFilter} onValueChange={(value) => setLocationFilter(value as 'all' | 'online' | 'in-person')}>
+                <TabsList>
+                  <TabsTrigger value="all">All Locations</TabsTrigger>
+                  <TabsTrigger value="online">Online</TabsTrigger>
+                  <TabsTrigger value="in-person">In-Person</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
           </div>
 
           {/* Tag filters */}
@@ -436,6 +471,7 @@ export default function Events() {
                 key={event.id}
                 event={event}
                 onClick={() => setSelectedEvent(event)}
+                isOnlineLocation={isOnlineLocation}
               />
             ))}
           </div>
@@ -447,24 +483,23 @@ export default function Events() {
             {selectedEvent && (
               <>
                 <DialogHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <DialogTitle>{selectedEvent.title || 'Untitled Event'}</DialogTitle>
-                      <DialogDescription>
-                        Event details and information
-                      </DialogDescription>
-                    </div>
-                    {generateEventNaddr(selectedEvent) && (
+                  <DialogTitle>
+                    {generateEventNaddr(selectedEvent) ? (
                       <Link 
                         to={generateEventNaddr(selectedEvent)!} 
-                        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors ml-4"
+                        className="inline-flex items-center gap-2 hover:underline focus:outline-none focus:underline"
                         title="View full event page"
                       >
+                        {selectedEvent.title || 'Untitled Event'}
                         <ExternalLink className="h-4 w-4" />
-                        <span className="hidden sm:inline">View Event</span>
                       </Link>
+                    ) : (
+                      selectedEvent.title || 'Untitled Event'
                     )}
-                  </div>
+                  </DialogTitle>
+                  <DialogDescription>
+                    Event details and information
+                  </DialogDescription>
                 </DialogHeader>
                 
                 <div className="space-y-4 mt-4">
@@ -541,7 +576,11 @@ export default function Events() {
 
                     {selectedEvent.location && (
                       <div className="flex items-center gap-2">
-                        <MapPin className="h-4 w-4 text-muted-foreground" />
+                        {isOnlineLocation(selectedEvent.location) ? (
+                          <Video className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <MapPin className="h-4 w-4 text-muted-foreground" />
+                        )}
                         <span className="text-sm">{selectedEvent.location}</span>
                       </div>
                     )}
