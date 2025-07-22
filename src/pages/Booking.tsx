@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useParams } from 'react-router-dom';
 import { useNostr } from '@nostrify/react';
 import { nip19 } from 'nostr-tools';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -20,6 +20,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CalendarDays, Clock, MapPin, Zap } from 'lucide-react';
 import { format, addDays, setHours, setMinutes } from 'date-fns';
 import { parseAvailabilityTemplate } from '@/utils/parseAvailabilityTemplate';
+import { BookingNaddrInput } from '@/components/BookingNaddrInput';
 
 interface AvailabilityTemplate {
   id: string;
@@ -50,7 +51,11 @@ interface TimeSlot {
 
 export default function Booking() {
   const [searchParams] = useSearchParams();
+  const { naddr: naddrParam } = useParams<{ naddr?: string }>();
   const navigate = useNavigate();
+  
+  // Check if we have an naddr from either source
+  const currentNaddr = naddrParam || searchParams.get('naddr');
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const { publishPrivateTimeEvent: _publishPrivateTimeEvent, isPublishing } = usePrivateCalendarPublish();
@@ -73,10 +78,11 @@ export default function Booking() {
     const loadTemplate = async () => {
       try {
         (window as any).bookingStartTime = Date.now();
-        const naddr = searchParams.get('naddr');
+        // Get naddr from either URL path parameter or query parameter
+        const naddr = naddrParam || searchParams.get('naddr');
         if (!naddr) {
-          setError('No booking link provided');
-          setStep('error');
+          // No naddr provided - show input form instead of error
+          setStep('selecting'); // We'll handle this in the render
           return;
         }
 
@@ -547,7 +553,7 @@ export default function Booking() {
     };
 
     loadTemplate();
-  }, [searchParams, nostr, setError, setStep, setTemplate, setBusyTimes]);
+  }, [searchParams, naddrParam, nostr, setError, setStep, setTemplate, setBusyTimes]);
 
   // Calculate available slots when date is selected
   useEffect(() => {
@@ -936,6 +942,11 @@ export default function Booking() {
         </Card>
       </div>
     );
+  }
+
+  // Show naddr input form if no naddr is provided
+  if (!currentNaddr) {
+    return <BookingNaddrInput />;
   }
 
   return (

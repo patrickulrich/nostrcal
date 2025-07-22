@@ -13,6 +13,7 @@ import Events from "./pages/Events";
 import EventSlots from "./pages/EventSlots";
 import Settings from "./pages/Settings";
 import SettingsTest from "./pages/SettingsTest";
+import CalendarEventPage from "./pages/CalendarEventPage";
 
 export function AppRouter() {
   return (
@@ -26,8 +27,10 @@ export function AppRouter() {
             <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/new-event" element={<NewEvent />} />
             <Route path="/booking" element={<Booking />} />
+            <Route path="/booking/:naddr" element={<Booking />} />
             <Route path="/bookings" element={<Bookings />} />
             <Route path="/events" element={<Events />} />
+            <Route path="/events/:naddr" element={<CalendarEventPage />} />
             <Route path="/event-slots" element={<EventSlots />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/settings-test" element={<SettingsTest />} />

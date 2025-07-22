@@ -323,7 +323,7 @@ export default function EventSlots() {
       relays: []
     });
     
-    const url = `${window.location.origin}/booking?naddr=${naddr}`;
+    const url = `${window.location.origin}/booking/${naddr}`;
     navigator.clipboard.writeText(url);
     
     toast({

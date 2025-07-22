@@ -22,7 +22,8 @@ import {
   Search,
   Tag,
   Globe,
-  X
+  X,
+  ExternalLink
 } from 'lucide-react';
 import { format, isAfter, isBefore, isToday, addDays } from 'date-fns';
 import { genUserName } from '@/lib/genUserName';
@@ -30,6 +31,8 @@ import { useAuthor } from '@/hooks/useAuthor';
 import { useCreateRSVP, useRSVPStatus, RSVPStatus } from '@/hooks/useRSVP';
 import { CommentsSection } from '@/components/comments/CommentsSection';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { nip19 } from 'nostr-tools';
+import { Link } from 'react-router-dom';
 
 interface CalendarEvent {
   id: string;
@@ -171,6 +174,23 @@ function EventCard({ event, onClick }: EventCardProps) {
       </CardContent>
     </Card>
   );
+}
+
+// Generate naddr URL for a calendar event
+function generateEventNaddr(event: CalendarEvent): string | null {
+  if (!event.dTag || !event.pubkey) return null;
+  
+  try {
+    const naddr = nip19.naddrEncode({
+      identifier: event.dTag,
+      pubkey: event.pubkey,
+      kind: event.kind,
+    });
+    return `/events/${naddr}`;
+  } catch (error) {
+    console.error('Failed to generate naddr:', error);
+    return null;
+  }
 }
 
 export default function Events() {
@@ -427,10 +447,24 @@ export default function Events() {
             {selectedEvent && (
               <>
                 <DialogHeader>
-                  <DialogTitle>{selectedEvent.title || 'Untitled Event'}</DialogTitle>
-                  <DialogDescription>
-                    Event details and information
-                  </DialogDescription>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <DialogTitle>{selectedEvent.title || 'Untitled Event'}</DialogTitle>
+                      <DialogDescription>
+                        Event details and information
+                      </DialogDescription>
+                    </div>
+                    {generateEventNaddr(selectedEvent) && (
+                      <Link 
+                        to={generateEventNaddr(selectedEvent)!} 
+                        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors ml-4"
+                        title="View full event page"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        <span className="hidden sm:inline">View Event</span>
+                      </Link>
+                    )}
+                  </div>
                 </DialogHeader>
                 
                 <div className="space-y-4 mt-4">
