@@ -24,8 +24,18 @@ import {
   Globe,
   X,
   Video,
-  ExternalLink
+  ExternalLink,
+  Grid3X3,
+  Map
 } from 'lucide-react';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+import { useEventGeocoding } from '@/hooks/useEventGeocoding';
+import { isPhysicalAddress } from '@/utils/geocoding';
+import { Progress } from '@/components/ui/progress';
+import { MapPin as MapPinIcon, Loader2 } from 'lucide-react';
 import { format, isAfter, isBefore, isToday, addDays } from 'date-fns';
 import { genUserName } from '@/lib/genUserName';
 import { useAuthor } from '@/hooks/useAuthor';
@@ -199,6 +209,14 @@ function generateEventNaddr(event: CalendarEvent): string | null {
   }
 }
 
+// Fix leaflet icon issue
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
+
 export default function Events() {
   const { data: events, isLoading, error } = usePublicCalendarEvents();
   const { user } = useCurrentUser();
@@ -209,13 +227,14 @@ export default function Events() {
   const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'week' | 'upcoming'>('upcoming');
   const [locationFilter, setLocationFilter] = useState<'all' | 'online' | 'in-person'>('all');
   const [rsvpStatus, setRsvpStatus] = useState<RSVPStatus | null>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
   const existingRSVP = useRSVPStatus(selectedEvent?.id || '');
 
   // Helper function to determine if location is online (contains hyperlink)
   const isOnlineLocation = (location: string | undefined): boolean => {
     if (!location) return false;
-    // Check if location contains URL patterns
-    return /^(https?:\/\/|www\.)/.test(location.trim());
+    // Use the more comprehensive check from geocoding utils
+    return !isPhysicalAddress(location);
   };
 
   // Process events to extract hashtags and images
@@ -309,6 +328,15 @@ export default function Events() {
     return dateA - dateB;
   });
 
+  // Use geocoding hook for events with physical addresses
+  const {
+    eventsWithCoordinates,
+    isGeocoding,
+    geocodingProgress,
+    hasGeocodedEvents,
+    totalPhysicalEvents
+  } = useEventGeocoding(sortedEvents);
+
   // Show skeleton loading while loading
   const showSkeletonLoading = isLoading;
 
@@ -359,11 +387,28 @@ export default function Events() {
     <div className="container mx-auto p-4 max-w-7xl">
       <div className="space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold">Discover Events</h1>
-          <p className="text-muted-foreground mt-2">
-            Browse public calendar events from the Nostr network
-          </p>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold">Discover Events</h1>
+            <p className="text-muted-foreground mt-2">
+              Browse public calendar events from the Nostr network
+            </p>
+          </div>
+          <ToggleGroup 
+            type="single" 
+            value={viewMode} 
+            onValueChange={(value) => value && setViewMode(value as 'grid' | 'map')}
+            className="shrink-0"
+          >
+            <ToggleGroupItem value="grid" aria-label="Grid view">
+              <Grid3X3 className="h-4 w-4 mr-2" />
+              Grid
+            </ToggleGroupItem>
+            <ToggleGroupItem value="map" aria-label="Map view">
+              <Map className="h-4 w-4 mr-2" />
+              Map
+            </ToggleGroupItem>
+          </ToggleGroup>
         </div>
 
         {/* Filters */}
@@ -464,7 +509,7 @@ export default function Events() {
               </p>
             </CardContent>
           </Card>
-        ) : (
+        ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {sortedEvents.map(event => (
               <EventCard
@@ -474,6 +519,130 @@ export default function Events() {
                 isOnlineLocation={isOnlineLocation}
               />
             ))}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Geocoding Progress */}
+            {isGeocoding && (
+              <Card>
+                <CardContent className="py-4">
+                  <div className="flex items-center gap-3">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <div className="flex-1">
+                      <div className="flex justify-between text-sm mb-2">
+                        <span>Finding event locations...</span>
+                        <span>{geocodingProgress.current} / {geocodingProgress.total}</span>
+                      </div>
+                      <Progress 
+                        value={(geocodingProgress.current / geocodingProgress.total) * 100} 
+                        className="h-2"
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Demo coordinates notification */}
+            {hasGeocodedEvents && eventsWithCoordinates.some(e => e.coordinates?.display_name?.includes('(Demo Location)')) && (
+              <Card className="border-amber-200 bg-amber-50">
+                <CardContent className="py-3">
+                  <div className="flex items-center gap-2 text-amber-800">
+                    <MapPinIcon className="h-4 w-4" />
+                    <span className="text-sm">
+                      Some locations are showing approximate coordinates due to network connectivity issues.
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Map View */}
+            {!hasGeocodedEvents && !isGeocoding ? (
+              <Card className="border-dashed">
+                <CardContent className="py-12 text-center">
+                  <MapPinIcon className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                  <h2 className="text-xl font-semibold mb-2">No Mappable Events Found</h2>
+                  <p className="text-muted-foreground">
+                    {totalPhysicalEvents > 0 
+                      ? `Found ${totalPhysicalEvents} events with addresses, but couldn't locate them on the map`
+                      : 'No events with physical addresses are available to show on the map'
+                    }
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="rounded-lg overflow-hidden border">
+                <MapContainer
+                  center={eventsWithCoordinates.length > 0 
+                    ? [eventsWithCoordinates[0].coordinates!.lat, eventsWithCoordinates[0].coordinates!.lon]
+                    : [40.7128, -74.0060] // Default to NYC
+                  }
+                  zoom={eventsWithCoordinates.length === 1 ? 15 : 10}
+                  style={{ height: '600px', width: '100%' }}
+                  className="z-0"
+                >
+                  <TileLayer
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  />
+                  {eventsWithCoordinates.map(event => {
+                    if (!event.coordinates) return null;
+                    
+                    return (
+                      <Marker 
+                        key={event.id} 
+                        position={[event.coordinates.lat, event.coordinates.lon]}
+                      >
+                        <Popup>
+                          <div className="p-2 max-w-xs">
+                            {(() => {
+                              const originalEvent = sortedEvents.find(e => e.id === event.id);
+                              const eventNaddr = originalEvent ? generateEventNaddr(originalEvent) : null;
+                              
+                              return eventNaddr ? (
+                                <Link to={eventNaddr} className="block">
+                                  <h3 className="font-semibold text-sm hover:text-blue-600 cursor-pointer">
+                                    {event.title || 'Untitled Event'}
+                                  </h3>
+                                </Link>
+                              ) : (
+                                <h3 className="font-semibold text-sm">{event.title || 'Untitled Event'}</h3>
+                              );
+                            })()}
+                            <p className="text-xs text-gray-600 mt-1">
+                              {event.kind === 31922 
+                                ? (event.start ? format(new Date(event.start), 'MMM d, yyyy') : 'No date')
+                                : (event.start ? format(new Date(parseInt(event.start || '0') * 1000), 'MMM d, h:mm a') : 'No time')
+                              }
+                            </p>
+                            {event.location && (
+                              <p className="text-xs mt-1 flex items-center gap-1">
+                                <MapPinIcon className="h-3 w-3" />
+                                <span className="truncate" title={event.coordinates.display_name}>
+                                  {event.location}
+                                </span>
+                              </p>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="link"
+                              className="mt-2 p-0 h-auto text-xs"
+                              onClick={() => {
+                                const originalEvent = sortedEvents.find(e => e.id === event.id);
+                                if (originalEvent) setSelectedEvent(originalEvent);
+                              }}
+                            >
+                              View Details
+                            </Button>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    );
+                  })}
+                </MapContainer>
+              </div>
+            )}
           </div>
         )}
 

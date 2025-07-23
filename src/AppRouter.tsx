@@ -17,7 +17,12 @@ import CalendarEventPage from "./pages/CalendarEventPage";
 
 export function AppRouter() {
   return (
-    <BrowserRouter>
+    <BrowserRouter
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true
+      }}
+    >
       <ScrollToTop />
       <div className="min-h-screen flex flex-col">
         <SiteHeader />
