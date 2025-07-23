@@ -192,22 +192,74 @@ export default function Booking() {
         
         if (!skipRelayPrefs) {
           // First, fetch the calendar owner's relay preferences to know where to look for events
-          // Run both queries in parallel with shorter timeout
-          const relayPrefSignal = AbortSignal.timeout(2000); // Reduce to 2 seconds
+          // Use streaming approach with EOSE handling for nsec authentication
+          
+          // Helper function to query single relay preference event with EOSE handling
+          const queryRelayPrefs = async (kind: number) => {
+            try {
+              const subscription = nostr.req([{
+                kinds: [kind],
+                authors: [pubkey],
+                limit: 1
+              }], { signal: AbortSignal.timeout(2000) });
+              
+              return await new Promise<any[]>((resolve) => {
+                const events: any[] = [];
+                let completed = false;
+                
+                // Short timeout for single event lookup
+                const timeout = setTimeout(() => {
+                  if (!completed) {
+                    completed = true;
+                    resolve(events);
+                  }
+                }, 1000);
+                
+                const processSubscription = async () => {
+                  try {
+                    for await (const msg of subscription) {
+                      if (completed) break;
+                      
+                      if (msg[0] === 'EVENT') {
+                        events.push(msg[2]);
+                        // Complete immediately after finding the event
+                        if (events.length >= 1) {
+                          if (!completed) {
+                            completed = true;
+                            clearTimeout(timeout);
+                            resolve(events);
+                          }
+                          return;
+                        }
+                      } else if (msg[0] === 'EOSE' || msg[0] === 'CLOSED') {
+                        if (!completed) {
+                          completed = true;
+                          clearTimeout(timeout);
+                          resolve(events);
+                        }
+                        return;
+                      }
+                    }
+                  } catch {
+                    if (!completed) {
+                      completed = true;
+                      clearTimeout(timeout);
+                      resolve(events);
+                    }
+                  }
+                };
+                
+                processSubscription();
+              });
+            } catch {
+              return [];
+            }
+          };
           
           // Fetch both relay types in parallel
           [generalRelayEvents, privateRelayEvents] = await Promise.all([
-            nostr.query([{
-              kinds: [10002],
-              authors: [pubkey],
-              limit: 1
-            }], { signal: relayPrefSignal }).catch(() => []), // Return empty array on timeout
-            
-            nostr.query([{
-              kinds: [10050],
-              authors: [pubkey],
-              limit: 1
-            }], { signal: relayPrefSignal }).catch(() => []) // Return empty array on timeout
+            queryRelayPrefs(10002), // General relays
+            queryRelayPrefs(10050)  // Private relays
           ]);
         }
         
@@ -702,15 +754,64 @@ export default function Booking() {
   const getOwnerRelayPreferences = async (ownerPubkey: string) => {
     try {
       // Fetch the calendar owner's relay preferences (kind 10050)
-      const signal = AbortSignal.timeout(5000);
-      const relayPrefEvents = await nostr.query([{
+      // Use streaming approach with EOSE handling for nsec authentication
+      const subscription = nostr.req([{
         kinds: [10050],
         authors: [ownerPubkey],
         limit: 1
-      }], { signal });
+      }], { signal: AbortSignal.timeout(5000) });
       
-      if (relayPrefEvents.length > 0) {
-        const event = relayPrefEvents[0];
+      const events = await new Promise<any[]>((resolve) => {
+        const events: any[] = [];
+        let completed = false;
+        
+        // 1 second timeout for single event lookup
+        const timeout = setTimeout(() => {
+          if (!completed) {
+            completed = true;
+            resolve(events);
+          }
+        }, 1000);
+        
+        const processSubscription = async () => {
+          try {
+            for await (const msg of subscription) {
+              if (completed) break;
+              
+              if (msg[0] === 'EVENT') {
+                events.push(msg[2]);
+                // Complete immediately after finding the event
+                if (events.length >= 1) {
+                  if (!completed) {
+                    completed = true;
+                    clearTimeout(timeout);
+                    resolve(events);
+                  }
+                  return;
+                }
+              } else if (msg[0] === 'EOSE' || msg[0] === 'CLOSED') {
+                if (!completed) {
+                  completed = true;
+                  clearTimeout(timeout);
+                  resolve(events);
+                }
+                return;
+              }
+            }
+          } catch {
+            if (!completed) {
+              completed = true;
+              clearTimeout(timeout);
+              resolve(events);
+            }
+          }
+        };
+        
+        processSubscription();
+      });
+      
+      if (events.length > 0) {
+        const event = events[0];
         const relays = event.tags
           .filter(t => t[0] === 'r')
           .map(t => ({ url: t[1], read: t[2] !== 'write', write: t[2] !== 'read' }));
