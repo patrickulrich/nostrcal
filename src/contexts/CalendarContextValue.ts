@@ -3,6 +3,7 @@ export interface CalendarContextValue {
   currentDate: Date;
   miniCalendarDate: Date;
   view: 'day' | 'week' | 'month';
+  is24HourFormat: boolean;
   
   // Navigation methods
   navigateNext: () => void;
@@ -10,6 +11,7 @@ export interface CalendarContextValue {
   navigateToToday: () => void;
   navigateToDate: (date: Date) => void;
   setCalendarView: (view: 'day' | 'week' | 'month') => void;
+  setTimeFormat: (is24Hour: boolean) => void;
   
   // Utility methods
   getWeekDates: () => Date[];

@@ -26,7 +26,7 @@ function CalendarControls() {
   const { 
     currentDate, 
     view, 
-    setCalendarView, 
+    setCalendarView,
     navigateNext, 
     navigatePrevious, 
     navigateToToday 

@@ -11,6 +11,7 @@ import { Calendar, Clock, MapPin, Lock, MoreVertical, Edit, Trash2 } from 'lucid
 import ParticipantsList from '@/components/ParticipantsList';
 import { EditEventModal } from './EditEventModal';
 import { CalendarEvent } from '@/contexts/EventsContextTypes';
+import { formatHour, formatDateTime } from '@/utils/timeFormat';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,6 +36,7 @@ interface EventModalProps {
 
 function EventModal({ event, onClose, onEdit, onDelete }: EventModalProps) {
   const { user } = useCurrentUser();
+  const { is24HourFormat } = useCalendar();
   const deleteEventMutation = useDeleteCalendarEvent();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
@@ -65,9 +67,8 @@ function EventModal({ event, onClose, onEdit, onDelete }: EventModalProps) {
     }
   };
 
-  const formatDateTime = (timestamp: string) => {
-    const date = new Date(parseInt(timestamp) * 1000);
-    return date.toLocaleString();
+  const formatDateTimeDisplay = (timestamp: string) => {
+    return formatDateTime(timestamp, is24HourFormat);
   };
 
   const formatDate = (dateStr: string) => {
@@ -129,9 +130,9 @@ function EventModal({ event, onClose, onEdit, onDelete }: EventModalProps) {
               ) : (
                 // Time-based event
                 event.start && event.end ? (
-                  `${formatDateTime(event.start)} - ${formatDateTime(event.end)}`
+                  `${formatDateTimeDisplay(event.start)} - ${formatDateTimeDisplay(event.end)}`
                 ) : (
-                  event.start ? formatDateTime(event.start) : 'No time'
+                  event.start ? formatDateTimeDisplay(event.start) : 'No time'
                 )
               )}
             </span>
@@ -440,7 +441,7 @@ function getEventSpanInfo(event: CalendarEvent, date: Date) {
 }
 
 function WeekView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => void }) {
-  const { getWeekDates } = useCalendar();
+  const { getWeekDates, is24HourFormat } = useCalendar();
   const { getFilteredEvents } = useEvents();
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
 
@@ -459,11 +460,8 @@ function WeekView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => void
   const events = getFilteredEvents();
   const hours = Array.from({ length: 24 }, (_, i) => i);
 
-  const formatHour = (hour: number) => {
-    return hour === 0 ? '12 AM' : 
-           hour < 12 ? `${hour} AM` : 
-           hour === 12 ? '12 PM' : 
-           `${hour - 12} PM`;
+  const formatHourDisplay = (hour: number) => {
+    return formatHour(hour, is24HourFormat);
   };
 
   return (
@@ -512,7 +510,7 @@ function WeekView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => void
                 <div key={hour} className="h-16 border-b border-border min-h-[64px]">
                   <div className="h-full flex items-center justify-end pr-2">
                     <span className="text-xs text-muted-foreground">
-                      {formatHour(hour)}
+                      {formatHourDisplay(hour)}
                     </span>
                   </div>
                 </div>
@@ -723,7 +721,7 @@ function MonthView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => voi
 }
 
 function DayView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => void }) {
-  const { currentDate } = useCalendar();
+  const { currentDate, is24HourFormat } = useCalendar();
   const { getFilteredEvents } = useEvents();
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
 
@@ -741,11 +739,8 @@ function DayView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => void 
   const events = getFilteredEvents();
   const hours = Array.from({ length: 24 }, (_, i) => i);
 
-  const formatHour = (hour: number) => {
-    return hour === 0 ? '12 AM' : 
-           hour < 12 ? `${hour} AM` : 
-           hour === 12 ? '12 PM' : 
-           `${hour - 12} PM`;
+  const formatHourDisplay = (hour: number) => {
+    return formatHour(hour, is24HourFormat);
   };
 
   const dayEvents = events.filter(event => {
@@ -783,7 +778,7 @@ function DayView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => void 
           <div className="w-16 border-r">
             {hours.map(hour => (
               <div key={hour} className="h-16 p-2 text-xs text-muted-foreground text-right border-b">
-                {formatHour(hour)}
+                {formatHourDisplay(hour)}
               </div>
             ))}
           </div>

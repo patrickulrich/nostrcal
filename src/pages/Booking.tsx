@@ -21,6 +21,10 @@ import { CalendarDays, Clock, MapPin, Zap } from 'lucide-react';
 import { format, addDays, setHours, setMinutes } from 'date-fns';
 import { parseAvailabilityTemplate } from '@/utils/parseAvailabilityTemplate';
 import { BookingNaddrInput } from '@/components/BookingNaddrInput';
+import LoginDialog from '@/components/auth/LoginDialog';
+import SignupDialog from '@/components/auth/SignupDialog';
+import { createRumor, createGiftWrapsForRecipients, extractParticipants, publishGiftWrapsToParticipants } from '@/utils/nip59';
+import { getParticipantRelayPreferences } from '@/utils/relay-preferences';
 
 interface AvailabilityTemplate {
   id: string;
@@ -72,6 +76,8 @@ export default function Booking() {
   const [participantName, setParticipantName] = useState('');
   const [participantEmail, setParticipantEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showSignupModal, setShowSignupModal] = useState(false);
 
   // Parse naddr from URL
   useEffect(() => {
@@ -695,6 +701,23 @@ export default function Booking() {
     setAvailableSlots(slots);
   }, [selectedDate, template, busyTimes]);
 
+  const handleBookingClick = () => {
+    // If user is not authenticated, show login modal
+    if (!user?.signer) {
+      setShowLoginModal(true);
+      return;
+    }
+    
+    // If authenticated, proceed with booking
+    handleBooking();
+  };
+
+  const handleLoginSuccess = () => {
+    setShowLoginModal(false);
+    setShowSignupModal(false);
+    // After successful login, the user state will update and they can click the button again
+  };
+
   const handleBooking = async () => {
     if (!template || !selectedSlot || !participantName || !user?.signer) return;
 
@@ -868,8 +891,6 @@ export default function Booking() {
 
 
     // Create the unsigned calendar event (rumor)
-    const { createRumor, createGiftWrapsForRecipients, extractParticipants, publishGiftWrapsToParticipants } = await import('@/utils/nip59');
-    const { getParticipantRelayPreferences } = await import('@/utils/relay-preferences');
     
     const rumor = await createRumor({
       kind: 31923,
@@ -1200,12 +1221,14 @@ export default function Booking() {
                 </Button>
                 <Button 
                   className="flex-1"
-                  onClick={handleBooking}
-                  disabled={!participantName || isPublishing || !user?.signer}
+                  onClick={handleBookingClick}
+                  disabled={!participantName || isPublishing}
                 >
-                  {template?.amount && template.amount > 0 
-                    ? `Book & Pay ${template.amount} sats`
-                    : 'Book Time'
+                  {!user?.signer 
+                    ? 'Sign in to Book'
+                    : template?.amount && template.amount > 0 
+                      ? `Book & Pay ${template.amount} sats`
+                      : 'Book Time'
                   }
                 </Button>
               </div>
@@ -1223,6 +1246,22 @@ export default function Booking() {
           )}
         </CardContent>
       </Card>
+
+      <LoginDialog
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onLogin={handleLoginSuccess}
+        onSignup={() => {
+          setShowLoginModal(false);
+          setShowSignupModal(true);
+        }}
+      />
+
+      <SignupDialog
+        isOpen={showSignupModal}
+        onClose={() => setShowSignupModal(false)}
+        onComplete={handleLoginSuccess}
+      />
     </div>
   );
 }

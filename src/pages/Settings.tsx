@@ -3,6 +3,7 @@ import { useNostr } from '@nostrify/react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useAppContext } from '@/hooks/useAppContext';
 import { useTheme } from '@/hooks/useTheme';
+import { useCalendar } from '@/hooks/useCalendar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -49,6 +50,7 @@ export default function Settings() {
   const { nostr } = useNostr();
   const { theme, setTheme } = useTheme();
   const { config, updateConfig, presetRelays } = useAppContext();
+  const { is24HourFormat, setTimeFormat } = useCalendar();
   const { toast } = useToast();
   const {
     publishedServers,
@@ -437,6 +439,14 @@ export default function Settings() {
                 <div className="space-y-2">
                   <Label>Calendar Display</Label>
                   <div className="space-y-2">
+                    <div className="flex items-center space-x-2">
+                      <Switch 
+                        id="time-format" 
+                        checked={is24HourFormat}
+                        onCheckedChange={setTimeFormat}
+                      />
+                      <Label htmlFor="time-format">24-hour time format</Label>
+                    </div>
                     <div className="flex items-center space-x-2">
                       <Switch id="show-weekends" defaultChecked />
                       <Label htmlFor="show-weekends">Show weekends</Label>

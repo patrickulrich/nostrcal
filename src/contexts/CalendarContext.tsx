@@ -6,10 +6,54 @@ interface CalendarProviderProps {
   children: ReactNode;
 }
 
+const CALENDAR_VIEW_STORAGE_KEY = 'nostrcal-calendar-view';
+const TIME_FORMAT_STORAGE_KEY = 'nostrcal-time-format';
+
+const getStoredCalendarView = (): 'day' | 'week' | 'month' => {
+  try {
+    const stored = localStorage.getItem(CALENDAR_VIEW_STORAGE_KEY);
+    if (stored && ['day', 'week', 'month'].includes(stored)) {
+      return stored as 'day' | 'week' | 'month';
+    }
+  } catch (error) {
+    // Ignore localStorage errors (e.g., in private browsing mode)
+    console.warn('Failed to read calendar view preference from localStorage:', error);
+  }
+  return 'week'; // Default fallback
+};
+
+const storeCalendarView = (view: 'day' | 'week' | 'month') => {
+  try {
+    localStorage.setItem(CALENDAR_VIEW_STORAGE_KEY, view);
+  } catch (error) {
+    // Ignore localStorage errors (e.g., in private browsing mode)
+    console.warn('Failed to save calendar view preference to localStorage:', error);
+  }
+};
+
+const getStoredTimeFormat = (): boolean => {
+  try {
+    const stored = localStorage.getItem(TIME_FORMAT_STORAGE_KEY);
+    return stored === 'true';
+  } catch (error) {
+    console.warn('Failed to read time format preference from localStorage:', error);
+  }
+  return false; // Default to 12-hour format
+};
+
+const storeTimeFormat = (is24Hour: boolean) => {
+  try {
+    localStorage.setItem(TIME_FORMAT_STORAGE_KEY, is24Hour.toString());
+  } catch (error) {
+    console.warn('Failed to save time format preference to localStorage:', error);
+  }
+};
+
 export function CalendarProvider({ children }: CalendarProviderProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [miniCalendarDate, setMiniCalendarDate] = useState(new Date());
-  const [view, setView] = useState<'day' | 'week' | 'month'>('week');
+  const [view, setView] = useState<'day' | 'week' | 'month'>(getStoredCalendarView());
+  const [is24HourFormat, setIs24HourFormat] = useState(getStoredTimeFormat());
 
   // Navigation methods
   const navigateNext = () => {
@@ -49,6 +93,12 @@ export function CalendarProvider({ children }: CalendarProviderProps) {
 
   const setCalendarView = (newView: 'day' | 'week' | 'month') => {
     setView(newView);
+    storeCalendarView(newView);
+  };
+
+  const setTimeFormat = (is24Hour: boolean) => {
+    setIs24HourFormat(is24Hour);
+    storeTimeFormat(is24Hour);
   };
 
   // Utility methods
@@ -101,11 +151,13 @@ export function CalendarProvider({ children }: CalendarProviderProps) {
     currentDate,
     miniCalendarDate,
     view,
+    is24HourFormat,
     navigateNext,
     navigatePrevious,
     navigateToToday,
     navigateToDate,
     setCalendarView,
+    setTimeFormat,
     getWeekDates,
     getMiniCalendarDates,
   };

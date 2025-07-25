@@ -1,7 +1,6 @@
 import { useState, useEffect, ReactNode } from 'react';
 import { CalendarEvent, UserCalendar, EventFilters, EventsContextValue } from './EventsContextTypes';
 import { EventsContext } from './EventsContextInstance';
-import { useAcceptedRSVPEvents } from '@/hooks/useRSVPEventDetails';
 
 interface EventsProviderProps {
   children: ReactNode;
@@ -17,8 +16,6 @@ export function EventsProvider({ children }: EventsProviderProps) {
   const [privateTimeEvents, setPrivateTimeEvents] = useState<CalendarEvent[]>([]);
   const [privateRsvps, setPrivateRsvps] = useState<CalendarEvent[]>([]);
   
-  // Get accepted RSVP events
-  const { data: acceptedRSVPEvents } = useAcceptedRSVPEvents();
   
   // Calendar state
   const [calendars, setCalendars] = useState<UserCalendar[]>([]);
@@ -67,30 +64,6 @@ export function EventsProvider({ children }: EventsProviderProps) {
     );
   };
 
-  // Convert accepted RSVP events to calendar events
-  const acceptedRSVPCalendarEvents: CalendarEvent[] = acceptedRSVPEvents?.map(rsvp => {
-    if (!rsvp.eventDetails) return null;
-    
-    return {
-      id: rsvp.eventDetails.id,
-      kind: rsvp.eventDetails.kind,
-      pubkey: rsvp.originalEvent?.pubkey || '',
-      created_at: rsvp.originalEvent?.created_at || Math.floor(Date.now() / 1000),
-      tags: rsvp.originalEvent?.tags || [],
-      content: rsvp.eventDetails.description || '',
-      sig: rsvp.originalEvent?.sig || '',
-      dTag: rsvp.eventDetails.dTag,
-      title: rsvp.eventDetails.title,
-      start: rsvp.eventDetails.start,
-      end: rsvp.eventDetails.end,
-      location: rsvp.eventDetails.location,
-      description: rsvp.eventDetails.description,
-      timezone: rsvp.eventDetails.timezone,
-      participants: rsvp.eventDetails.participants,
-      source: 'accepted-rsvp',
-      rawEvent: rsvp.originalEvent
-    } as CalendarEvent;
-  }).filter(Boolean) as CalendarEvent[] || [];
 
   const getFilteredEvents = () => {
     const filteredEvents: CalendarEvent[] = [];
@@ -161,10 +134,8 @@ export function EventsProvider({ children }: EventsProviderProps) {
       privateRsvps.forEach(event => addEvent(event, '#3f51b5', 'privateRsvps'));
     }
 
-    // Add accepted RSVP events (always shown when rsvpEvents filter is enabled)
-    if (eventFilters.rsvpEvents) {
-      acceptedRSVPCalendarEvents.forEach(event => addEvent(event, '#ff9800', 'accepted-rsvp'));
-    }
+    // Note: acceptedRSVPCalendarEvents are now handled directly in EnhancedCalendarView
+    // to prevent duplication with rsvpEvents
 
 
     return filteredEvents;
