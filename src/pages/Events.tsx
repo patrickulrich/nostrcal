@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 // import { useNostr } from '@nostrify/react';
-import { usePublicCalendarEvents } from '@/hooks/useCalendarEvents';
+import { usePublicCalendarEventsWithPagination } from '@/hooks/useCalendarEvents';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -34,6 +34,7 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { useEventGeocoding } from '@/hooks/useEventGeocoding';
 import { isPhysicalAddress } from '@/utils/geocoding';
+import { useUserLocation } from '@/hooks/useUserLocation';
 import { Progress } from '@/components/ui/progress';
 import { MapPin as MapPinIcon, Loader2 } from 'lucide-react';
 import { format, isAfter, isBefore, isToday, addDays } from 'date-fns';
@@ -218,7 +219,7 @@ L.Icon.Default.mergeOptions({
 });
 
 export default function Events() {
-  const { data: events, isLoading, error } = usePublicCalendarEvents();
+  const { data: events, isLoading, error, loadMore, hasMore, isLoadingMore } = usePublicCalendarEventsWithPagination();
   const { user } = useCurrentUser();
   const createRSVP = useCreateRSVP();
   const [searchTerm, setSearchTerm] = useState('');
@@ -229,6 +230,9 @@ export default function Events() {
   const [rsvpStatus, setRsvpStatus] = useState<RSVPStatus | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
   const existingRSVP = useRSVPStatus(selectedEvent?.id || '');
+  
+  // Get user's location for map centering
+  const { userLocation, locationError: _locationError, isLoadingLocation: _isLoadingLocation } = useUserLocation();
 
   // Helper function to determine if location is online (contains hyperlink)
   const isOnlineLocation = (location: string | undefined): boolean => {
@@ -261,10 +265,24 @@ export default function Events() {
   const filteredEvents = processedEvents.filter(event => {
     // Search filter
     if (searchTerm) {
-      const search = searchTerm.toLowerCase();
+      const search = searchTerm.toLowerCase().trim();
       const matchesTitle = event.title?.toLowerCase().includes(search);
       const matchesDescription = event.description?.toLowerCase().includes(search);
-      const matchesLocation = event.location?.toLowerCase().includes(search);
+      
+      // Enhanced location matching - check if search term matches any part of the location
+      let matchesLocation = false;
+      if (event.location) {
+        const locationLower = event.location.toLowerCase();
+        // Direct match
+        matchesLocation = locationLower.includes(search);
+        
+        // If no direct match, split location by common delimiters and check each part
+        if (!matchesLocation) {
+          const locationParts = locationLower.split(/[,;|/]/).map(part => part.trim());
+          matchesLocation = locationParts.some(part => part.includes(search));
+        }
+      }
+      
       const matchesTags = event.hashtags?.some(tag => tag.toLowerCase().includes(search));
       
       if (!matchesTitle && !matchesDescription && !matchesLocation && !matchesTags) {
@@ -418,7 +436,7 @@ export default function Events() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 type="text"
-                placeholder="Search events..."
+                placeholder="Search events, locations, cities..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -510,16 +528,39 @@ export default function Events() {
             </CardContent>
           </Card>
         ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {sortedEvents.map(event => (
-              <EventCard
-                key={event.id}
-                event={event}
-                onClick={() => setSelectedEvent(event)}
-                isOnlineLocation={isOnlineLocation}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {sortedEvents.map(event => (
+                <EventCard
+                  key={event.id}
+                  event={event}
+                  onClick={() => setSelectedEvent(event)}
+                  isOnlineLocation={isOnlineLocation}
+                />
+              ))}
+            </div>
+            
+            {/* Load More Button */}
+            {hasMore && sortedEvents.length > 0 && (
+              <div className="mt-8 flex justify-center">
+                <Button
+                  onClick={loadMore}
+                  disabled={isLoadingMore}
+                  variant="outline"
+                  size="lg"
+                >
+                  {isLoadingMore ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Loading more events...
+                    </>
+                  ) : (
+                    'Load More Events'
+                  )}
+                </Button>
+              </div>
+            )}
+          </>
         ) : (
           <div className="space-y-4">
             {/* Geocoding Progress */}
@@ -569,16 +610,34 @@ export default function Events() {
                       : 'No events with physical addresses are available to show on the map'
                     }
                   </p>
+                  {userLocation && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Map will center near your location
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             ) : (
               <div className="rounded-lg overflow-hidden border">
                 <MapContainer
-                  center={eventsWithCoordinates.length > 0 
-                    ? [eventsWithCoordinates[0].coordinates!.lat, eventsWithCoordinates[0].coordinates!.lon]
-                    : [40.7128, -74.0060] // Default to NYC
-                  }
-                  zoom={eventsWithCoordinates.length === 1 ? 15 : 10}
+                  key={userLocation ? `${userLocation.lat}-${userLocation.lng}` : 'default'}
+                  center={(() => {
+                    // Always prioritize user location if available
+                    if (userLocation) {
+                      return [userLocation.lat, userLocation.lng];
+                    }
+                    
+                    // If no user location, center on first event if available
+                    if (eventsWithCoordinates.length > 0) {
+                      return [eventsWithCoordinates[0].coordinates!.lat, eventsWithCoordinates[0].coordinates!.lon];
+                    }
+                    
+                    // Ultimate fallback
+                    return [40.7128, -74.0060];
+                  })()}
+                  zoom={eventsWithCoordinates.length === 1 ? 15 : 
+                        eventsWithCoordinates.length > 1 ? 10 : 
+                        userLocation ? 12 : 8}
                   style={{ height: '600px', width: '100%' }}
                   className="z-0"
                 >

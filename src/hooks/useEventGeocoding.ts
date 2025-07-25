@@ -57,33 +57,59 @@ export function useEventGeocoding<T extends CalendarEventBase>(events: T[]) {
       setIsGeocoding(true);
       setGeocodingProgress({ current: 0, total: eventsToGeocode.length });
 
-      // Process events one by one to respect rate limits
+      // Process events in parallel batches to improve performance while respecting rate limits
       const updatedEvents = [...initialEvents];
+      const BATCH_SIZE = 5; // Process 5 addresses concurrently
+      const BATCH_DELAY = 1000; // 1 second delay between batches
       
-      for (let i = 0; i < eventsToGeocode.length; i++) {
-        const event = eventsToGeocode[i];
-        const eventIndex = updatedEvents.findIndex(e => e.id === event.id);
+      for (let i = 0; i < eventsToGeocode.length; i += BATCH_SIZE) {
+        const batch = eventsToGeocode.slice(i, i + BATCH_SIZE);
         
-        if (eventIndex === -1 || !event.location) continue;
-
-        try {
-          const coordinates = await geocodeAddress(event.location);
+        // Process batch in parallel
+        const batchPromises = batch.map(async (event) => {
+          const eventIndex = updatedEvents.findIndex(e => e.id === event.id);
           
-          updatedEvents[eventIndex] = {
-            ...updatedEvents[eventIndex],
-            coordinates: coordinates || undefined,
-            geocodingStatus: coordinates ? 'success' : 'failed'
-          };
-        } catch (error) {
-          console.warn('Geocoding failed for event:', event.id, error);
-          updatedEvents[eventIndex] = {
-            ...updatedEvents[eventIndex],
-            geocodingStatus: 'failed'
-          };
-        }
+          if (eventIndex === -1 || !event.location) return null;
 
-        setGeocodingProgress({ current: i + 1, total: eventsToGeocode.length });
+          try {
+            const coordinates = await geocodeAddress(event.location);
+            
+            return {
+              eventIndex,
+              coordinates: coordinates || undefined,
+              geocodingStatus: coordinates ? 'success' as const : 'failed' as const
+            };
+          } catch (error) {
+            console.warn('Geocoding failed for event:', event.id, error);
+            return {
+              eventIndex,
+              coordinates: undefined,
+              geocodingStatus: 'failed' as const
+            };
+          }
+        });
+
+        // Wait for batch to complete
+        const batchResults = await Promise.all(batchPromises);
+        
+        // Update events with batch results
+        batchResults.forEach(result => {
+          if (result && result.eventIndex !== -1) {
+            updatedEvents[result.eventIndex] = {
+              ...updatedEvents[result.eventIndex],
+              coordinates: result.coordinates,
+              geocodingStatus: result.geocodingStatus
+            };
+          }
+        });
+
+        setGeocodingProgress({ current: Math.min(i + BATCH_SIZE, eventsToGeocode.length), total: eventsToGeocode.length });
         setGeocodedEvents([...updatedEvents]);
+        
+        // Add delay between batches to avoid rate limiting (except for last batch)
+        if (i + BATCH_SIZE < eventsToGeocode.length) {
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+        }
       }
 
       setIsGeocoding(false);

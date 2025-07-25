@@ -389,7 +389,7 @@ export function usePublicCalendarEvents() {
       const events = await nostr.query([
         {
           kinds: [31922, 31923], // Only public date and time events
-          limit: 50
+          limit: 100
         }
       ], { signal });
 
@@ -402,6 +402,119 @@ export function usePublicCalendarEvents() {
     staleTime: 60 * 1000, // 1 minute
     gcTime: 10 * 60 * 1000, // 10 minutes
   });
+}
+
+export function usePublicCalendarEventsWithPagination() {
+  const { nostr } = useNostr();
+  const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  
+  // Initial load
+  const { data: initialEvents, isLoading, error } = useQuery({
+    queryKey: ['public-calendar-events-paginated'],
+    queryFn: async (c) => {
+      const signal = AbortSignal.any([c.signal, AbortSignal.timeout(5000)]);
+      
+      const events = await nostr.query([
+        {
+          kinds: [31922, 31923], // Only public date and time events
+          limit: 100
+        }
+      ], { signal });
+
+      // Filter events through validator
+      const validEvents = events.filter(validateCalendarEvent);
+      const transformed = validEvents.map(transformEventForCalendar);
+      
+      // Sort by date
+      const sorted = transformed.sort((a, b) => {
+        const dateA = a.kind === 31922 
+          ? new Date(a.start || '').getTime() 
+          : (parseInt(a.start || '0') || 0) * 1000;
+        const dateB = b.kind === 31922 
+          ? new Date(b.start || '').getTime() 
+          : (parseInt(b.start || '0') || 0) * 1000;
+        return dateA - dateB;
+      });
+      
+      setAllEvents(sorted);
+      // Check if we got at least the limit from the query (before validation)
+      const hasMoreEvents = events.length >= 100;
+      setHasMore(hasMoreEvents);
+      
+      return sorted;
+    },
+    staleTime: 60 * 1000, // 1 minute
+    gcTime: 10 * 60 * 1000, // 10 minutes
+  });
+  
+  const loadMore = async () => {
+    if (!hasMore || isLoadingMore || allEvents.length === 0) return;
+    
+    setIsLoadingMore(true);
+    
+    try {
+      // Get the oldest event timestamp for pagination
+      const oldestEvent = allEvents[allEvents.length - 1];
+      const untilTimestamp = oldestEvent.kind === 31922
+        ? Math.floor(new Date(oldestEvent.start || '').getTime() / 1000)
+        : parseInt(oldestEvent.start || '0') || 0;
+      
+      const signal = AbortSignal.timeout(5000);
+      
+      const events = await nostr.query([
+        {
+          kinds: [31922, 31923],
+          until: untilTimestamp - 1, // Get events before the oldest one we have
+          limit: 50
+        }
+      ], { signal });
+      
+      const validEvents = events.filter(validateCalendarEvent);
+      const transformed = validEvents.map(transformEventForCalendar);
+      
+      if (transformed.length === 0) {
+        setHasMore(false);
+      } else {
+        // Merge and deduplicate
+        const existingIds = new Set(allEvents.map(e => e.id));
+        const newEvents = transformed.filter(e => !existingIds.has(e.id));
+        
+        if (newEvents.length > 0) {
+          const merged = [...allEvents, ...newEvents].sort((a, b) => {
+            const dateA = a.kind === 31922 
+              ? new Date(a.start || '').getTime() 
+              : (parseInt(a.start || '0') || 0) * 1000;
+            const dateB = b.kind === 31922 
+              ? new Date(b.start || '').getTime() 
+              : (parseInt(b.start || '0') || 0) * 1000;
+            return dateA - dateB;
+          });
+          
+          setAllEvents(merged);
+          // Check original events length before filtering
+          setHasMore(events.length >= 50);
+        } else {
+          setHasMore(false);
+        }
+      }
+    } catch (err) {
+      console.error('Error loading more events:', err);
+      setHasMore(false);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+  
+  return {
+    data: allEvents.length > 0 ? allEvents : initialEvents,
+    isLoading,
+    error,
+    loadMore,
+    hasMore,
+    isLoadingMore
+  };
 }
 
 export function useAvailabilityTemplate(naddr: string) {

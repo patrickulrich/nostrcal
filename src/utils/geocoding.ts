@@ -9,8 +9,83 @@ export interface GeocodingResult {
   confidence?: number;
 }
 
-// Cache for geocoding results to avoid repeated API calls
-const geocodingCache = new Map<string, GeocodingResult | null>();
+// Enhanced cache for geocoding results with persistence
+const CACHE_KEY = 'photon-geocoding-cache';
+const CACHE_EXPIRY_DAYS = 30;
+
+interface CachedResult {
+  result: GeocodingResult | null;
+  timestamp: number;
+}
+
+class GeocodingCache {
+  private cache = new Map<string, CachedResult>();
+  
+  constructor() {
+    this.loadFromStorage();
+  }
+  
+  private loadFromStorage() {
+    try {
+      const stored = localStorage.getItem(CACHE_KEY);
+      if (stored) {
+        const data = JSON.parse(stored);
+        const now = Date.now();
+        const expiryMs = CACHE_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+        
+        Object.entries(data).forEach(([key, value]: [string, any]) => {
+          if (value.timestamp && (now - value.timestamp) < expiryMs) {
+            this.cache.set(key, value);
+          }
+        });
+      }
+    } catch (error) {
+      console.warn('Failed to load geocoding cache:', error);
+    }
+  }
+  
+  private saveToStorage() {
+    try {
+      const data = Object.fromEntries(this.cache.entries());
+      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+    } catch (error) {
+      console.warn('Failed to save geocoding cache:', error);
+    }
+  }
+  
+  get(key: string): GeocodingResult | null | undefined {
+    const cached = this.cache.get(key);
+    return cached?.result;
+  }
+  
+  has(key: string): boolean {
+    return this.cache.has(key);
+  }
+  
+  set(key: string, result: GeocodingResult | null) {
+    this.cache.set(key, {
+      result,
+      timestamp: Date.now()
+    });
+    
+    // Debounced save to avoid excessive localStorage writes
+    clearTimeout(this.saveTimeout);
+    this.saveTimeout = setTimeout(() => this.saveToStorage(), 1000);
+  }
+  
+  clear() {
+    this.cache.clear();
+    localStorage.removeItem(CACHE_KEY);
+  }
+  
+  get size() {
+    return this.cache.size;
+  }
+  
+  private saveTimeout?: ReturnType<typeof setTimeout>;
+}
+
+const geocodingCache = new GeocodingCache();
 
 // Demo coordinates for common location patterns when geocoding fails
 const DEMO_COORDINATES: Record<string, [number, number]> = {
@@ -124,15 +199,50 @@ export function normalizeAddress(address: string): string {
 }
 
 /**
- * Using only Photon geocoding service as it's reliable and fast
+ * Optimized Photon geocoding service configuration
  */
 const GEOCODING_SERVICES = [
   {
     name: 'Photon (OpenStreetMap Alternative)',
-    url: (query: string) => `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=1`,
-    headers: {} as Record<string, string>
+    url: (query: string) => `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=1&lang=en`,
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': 'NostrCal/1.0 (+https://nostrcal.com)'
+    } as Record<string, string>
   },
 ];
+
+// Connection pool for better HTTP performance
+const fetchWithRetry = async (url: string, options: RequestInit, maxRetries = 2): Promise<Response> => {
+  let lastError;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.ok) {
+        return response;
+      }
+      
+      // Don't retry on client errors (4xx)
+      if (response.status >= 400 && response.status < 500) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
+      if (attempt < maxRetries) {
+        // Exponential backoff: 500ms, 1000ms, 2000ms
+        await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, attempt)));
+      }
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, attempt)));
+      }
+    }
+  }
+  
+  throw lastError;
+};
 
 /**
  * Geocodes an address using multiple services with fallbacks
@@ -152,34 +262,23 @@ export async function geocodeAddress(address: string): Promise<GeocodingResult |
   // Try coordinate extraction first (highest accuracy)
   const extractedCoords = tryExtractCoordinatesFromText(address);
   if (extractedCoords) {
-    console.log('Using extracted coordinates for:', normalizedAddress);
     geocodingCache.set(normalizedAddress, extractedCoords);
     return extractedCoords;
   }
   // Try multiple geocoding services
   for (const service of GEOCODING_SERVICES) {
     try {
-      console.log(`Trying ${service.name} for: ${normalizedAddress}`);
       
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout per service
+      const timeoutId = setTimeout(() => controller.abort(), 6000); // 6 second timeout per service
       
       const fetchOptions: RequestInit = {
         headers: service.headers,
+        signal: controller.signal,
       };
       
-      // Only add signal if AbortController is properly supported
-      if (typeof AbortController !== 'undefined' && controller.signal) {
-        fetchOptions.signal = controller.signal;
-      }
-      
-      const response = await fetch(service.url(normalizedAddress), fetchOptions);
+      const response = await fetchWithRetry(service.url(normalizedAddress), fetchOptions);
       clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        console.warn(`${service.name} returned HTTP ${response.status}`);
-        continue;
-      }
       
       const data = await response.json();
       
@@ -231,32 +330,23 @@ export async function geocodeAddress(address: string): Promise<GeocodingResult |
       if (geocodingResult) {
         // Validate coordinates are reasonable
         if (isValidCoordinates(geocodingResult.lat, geocodingResult.lon)) {
-          console.log(`✅ Successfully geocoded with ${service.name}:`, geocodingResult);
           geocodingCache.set(normalizedAddress, geocodingResult);
           return geocodingResult;
-        } else {
-          console.warn(`❌ ${service.name} returned invalid coordinates:`, geocodingResult);
         }
-      } else {
-        console.warn(`${service.name} returned no results`);
       }
       
-    } catch (error) {
-      console.warn(`${service.name} failed:`, error);
+    } catch {
       continue;
     }
   }
   
   // All services failed, try demo coordinates as last resort
-  console.log('All geocoding services failed, trying demo coordinates...');
   const demoResult = tryGetDemoCoordinates(normalizedAddress);
   if (demoResult) {
-    console.log('Using demo coordinates as fallback');
     geocodingCache.set(normalizedAddress, demoResult);
     return demoResult;
   }
   
-  console.log('No geocoding method worked for:', normalizedAddress);
   geocodingCache.set(normalizedAddress, null);
   return null;
 }
@@ -312,7 +402,6 @@ function tryExtractCoordinatesFromText(text: string): GeocodingResult | null {
       if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 && 
           Math.abs(lat) > 0.001 && Math.abs(lon) > 0.001) { // Avoid 0,0 coordinates
         
-        console.log(`✅ Extracted coordinates from text: lat=${lat}, lon=${lon}`);
         return {
           lat,
           lon,
