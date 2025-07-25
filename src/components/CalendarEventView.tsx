@@ -12,6 +12,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useCreateRSVP, useRSVPStatus, RSVPStatus } from '@/hooks/useRSVP';
 import { CommentsSection } from '@/components/comments/CommentsSection';
 import { CalendarEvent } from '@/contexts/EventsContextTypes';
+import { EventRSVPCount } from '@/components/EventRSVPCount';
 
 interface CalendarEventViewProps {
   event: CalendarEvent;
@@ -261,6 +262,12 @@ export function CalendarEventView({ event }: CalendarEventViewProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
+              {/* RSVP Count and Attendees */}
+              <EventRSVPCount 
+                eventId={event.id}
+                eventCoordinate={`${event.kind}:${event.pubkey}:${event.dTag}`}
+                className="mb-4"
+              />
               <div className="flex gap-2">
                 <Button
                   size="sm"

@@ -45,6 +45,8 @@ import { CommentsSection } from '@/components/comments/CommentsSection';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { nip19 } from 'nostr-tools';
 import { Link } from 'react-router-dom';
+import { EventRSVPCount } from '@/components/EventRSVPCount';
+import { InlineEventRSVPCount } from '@/components/InlineEventRSVPCount';
 
 interface CalendarEvent {
   id: string;
@@ -169,9 +171,17 @@ function EventCard({ event, onClick, isOnlineLocation }: EventCardProps) {
               {genUserName(event.pubkey).slice(0, 2).toUpperCase()}
             </AvatarFallback>
           </Avatar>
-          <span className="text-sm text-muted-foreground">
-            {metadata?.name || genUserName(event.pubkey)}
-          </span>
+          <div className="flex items-center gap-1 min-w-0 flex-1">
+            <span className="text-sm text-muted-foreground truncate">
+              {metadata?.name || genUserName(event.pubkey)}
+            </span>
+            {(event.kind === 31922 || event.kind === 31923) && (
+              <InlineEventRSVPCount
+                eventId={event.id}
+                eventCoordinate={`${event.kind}:${event.pubkey}:${event.dTag}`}
+              />
+            )}
+          </div>
         </div>
 
         {event.hashtags && event.hashtags.length > 0 && (
@@ -189,6 +199,7 @@ function EventCard({ event, onClick, isOnlineLocation }: EventCardProps) {
           </div>
         )}
       </CardContent>
+      
     </Card>
   );
 }
@@ -832,6 +843,13 @@ export default function Events() {
                     {/* RSVP Section */}
                     {user && (selectedEvent.kind === 31922 || selectedEvent.kind === 31923) && (
                       <div className="pt-4 border-t">
+                        {/* RSVP Count and Attendees */}
+                        <EventRSVPCount 
+                          eventId={selectedEvent.id}
+                          eventCoordinate={`${selectedEvent.kind}:${selectedEvent.pubkey}:${selectedEvent.dTag}`}
+                          className="mb-4"
+                        />
+                        
                         <h4 className="text-sm font-medium mb-3">RSVP to this event</h4>
                         <div className="flex gap-2">
                           <Button

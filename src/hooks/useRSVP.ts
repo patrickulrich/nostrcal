@@ -60,6 +60,7 @@ export function useCreateRSVP() {
       // Invalidate relevant queries to refresh data
       queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
       queryClient.invalidateQueries({ queryKey: ['user-rsvps'] });
+      queryClient.invalidateQueries({ queryKey: ['event-rsvps'] });
     },
   });
 }
