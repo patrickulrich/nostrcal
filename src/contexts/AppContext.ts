@@ -2,11 +2,19 @@ import { createContext } from "react";
 
 export type Theme = "dark" | "light" | "system";
 
+export interface GeneralRelayConfig {
+  url: string;
+  read: boolean;
+  write: boolean;
+}
+
 export interface AppConfig {
   /** Current theme */
   theme: Theme;
-  /** Selected relay URLs */
+  /** Selected relay URLs (legacy - kept for backward compatibility) */
   relayUrls: string[];
+  /** General relays with read/write permissions (NIP-65 compliant) */
+  generalRelays?: GeneralRelayConfig[];
   /** Whether to enable automatic authentication for relays */
   enableAuth: boolean;
   /** Blossom server URLs for file uploads */

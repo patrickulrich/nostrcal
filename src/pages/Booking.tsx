@@ -20,11 +20,15 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CalendarDays, Clock, MapPin, Zap } from 'lucide-react';
 import { format, addDays, setHours, setMinutes } from 'date-fns';
 import { parseAvailabilityTemplate } from '@/utils/parseAvailabilityTemplate';
-import { BookingNaddrInput } from '@/components/BookingNaddrInput';
+import { BookingTabs } from '@/components/BookingTabs';
+import { Switch } from '@/components/ui/switch';
+import Bookings from '@/pages/Bookings';
 import LoginDialog from '@/components/auth/LoginDialog';
 import SignupDialog from '@/components/auth/SignupDialog';
 import { createRumor, createGiftWrapsForRecipients, extractParticipants, publishGiftWrapsToParticipants } from '@/utils/nip59';
 import { getParticipantRelayPreferences } from '@/utils/relay-preferences';
+import { useZapVerification } from '@/hooks/useZapReceipts';
+import { LightningPayment } from '@/components/LightningPayment';
 
 interface AvailabilityTemplate {
   id: string;
@@ -66,7 +70,7 @@ export default function Booking() {
   const publishEvent = useCalendarPublish();
   const { config: _config } = useAppContext();
   
-  const [step, setStep] = useState<'loading' | 'selecting' | 'booking' | 'confirming' | 'success' | 'error'>('loading');
+  const [step, setStep] = useState<'loading' | 'selecting' | 'booking' | 'payment' | 'confirming' | 'success' | 'error'>('loading');
   const [template, setTemplate] = useState<AvailabilityTemplate | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
@@ -78,6 +82,30 @@ export default function Booking() {
   const [error, setError] = useState<string | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showSignupModal, setShowSignupModal] = useState(false);
+  
+  // Mode toggle state - defaults to "Owner" as requested
+  const [mode, setMode] = useState<'Booker' | 'Owner'>('Owner');
+
+  // Get template coordinate for zap verification
+  const templateCoordinate = currentNaddr ? (() => {
+    try {
+      const decoded = nip19.decode(currentNaddr);
+      if (decoded.type === 'naddr') {
+        const { kind, pubkey, identifier } = decoded.data;
+        return `${kind}:${pubkey}:${identifier}`;
+      }
+    } catch (err) {
+      console.warn('Failed to decode naddr for zap verification:', err);
+    }
+    return undefined;
+  })() : undefined;
+
+  // Check zap verification for paid templates
+  const { hasValidZap, isLoading: _isZapLoading } = useZapVerification(
+    templateCoordinate,
+    template?.amount,
+    user?.pubkey
+  );
 
   // Parse naddr from URL
   useEffect(() => {
@@ -718,9 +746,14 @@ export default function Booking() {
     // After successful login, the user state will update and they can click the button again
   };
 
-  const handleBooking = async () => {
+  const handleBooking = async (skipPaymentCheck = false) => {
     if (!template || !selectedSlot || !participantName || !user?.signer) return;
 
+    // Check if payment is required and not yet completed/attempted
+    if (template.amount && template.amount > 0 && !hasValidZap && !skipPaymentCheck) {
+      setStep('payment');
+      return;
+    }
     setStep('confirming');
     
     try {
@@ -736,6 +769,19 @@ export default function Booking() {
       
       
       // Create the private event with custom relay broadcasting
+      const availabilityTemplateCoordinate = currentNaddr ? (() => {
+        try {
+          const decoded = nip19.decode(currentNaddr);
+          if (decoded.type === 'naddr') {
+            const { kind, pubkey, identifier } = decoded.data;
+            return `${kind}:${pubkey}:${identifier}`;
+          }
+        } catch (err) {
+          console.warn('Failed to decode naddr for template coordinate:', err);
+        }
+        return undefined;
+      })() : undefined;
+
       await createPrivateBookingWithOwnerRelays({
         title: bookingTitle,
         description: bookingDescription,
@@ -744,7 +790,9 @@ export default function Booking() {
         location: template.location,
         timezone: template.timezone,
         participants,
-        ownerRelays: ownerRelayPrefs
+        ownerRelays: ownerRelayPrefs,
+        availabilityTemplateCoordinate,
+        template
       });
       
       // Create public availability block (31927) to show busy time
@@ -856,7 +904,9 @@ export default function Booking() {
     location,
     timezone,
     participants,
-    ownerRelays: _ownerRelays
+    ownerRelays: _ownerRelays,
+    availabilityTemplateCoordinate,
+    template
   }: {
     title: string;
     description: string;
@@ -866,6 +916,8 @@ export default function Booking() {
     timezone: string;
     participants: string[];
     ownerRelays: { url: string; read: boolean; write: boolean }[];
+    availabilityTemplateCoordinate?: string;
+    template: AvailabilityTemplate;
   }) => {
     if (!user?.signer) {
       throw new Error('User not authenticated');
@@ -888,6 +940,16 @@ export default function Booking() {
     participants.forEach(pubkey => {
       tags.push(['p', pubkey, '', 'participant']);
     });
+
+    // Add reference to availability template if booking from /booking/naddr
+    if (availabilityTemplateCoordinate) {
+      tags.push(['a', availabilityTemplateCoordinate]);
+    }
+
+    // Add amount from template for payment verification
+    if (template?.amount && template.amount > 0) {
+      tags.push(['amount', template.amount.toString()]);
+    }
 
 
     // Create the unsigned calendar event (rumor)
@@ -1028,6 +1090,34 @@ export default function Booking() {
     );
   }
 
+  if (step === 'payment') {
+    return (
+      <div className="container mx-auto p-4 max-w-4xl">
+        <Card>
+          <CardHeader>
+            <CardTitle>Payment Required</CardTitle>
+            <CardDescription>
+              This booking requires a {template?.amount} sat payment
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <LightningPayment
+              templateCoordinate={templateCoordinate || ''}
+              recipientPubkey={template?.pubkey || ''}
+              amount={template?.amount || 0}
+              templateTitle={template?.title || ''}
+              onPaymentComplete={() => {
+                // After payment, skip payment check and proceed with booking
+                handleBooking(true); // Skip payment check since we just completed payment
+              }}
+              onCancel={() => setStep('booking')}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (step === 'success') {
     return (
       <div className="container mx-auto p-4 max-w-4xl">
@@ -1042,7 +1132,10 @@ export default function Booking() {
             <div className="space-y-4">
               <Alert>
                 <AlertDescription>
-                  You will receive a confirmation once the organizer reviews your request.
+                  {template?.amount && template.amount > 0 
+                    ? 'Your payment was processed and booking request has been sent. You will receive a confirmation once the organizer reviews your request.'
+                    : 'You will receive a confirmation once the organizer reviews your request. You can track the status on your /booking page.'
+                  }
                 </AlertDescription>
               </Alert>
               
@@ -1066,9 +1159,51 @@ export default function Booking() {
     );
   }
 
-  // Show naddr input form if no naddr is provided
+  // Show unified interface with mode toggle if no naddr is provided
   if (!currentNaddr) {
-    return <BookingNaddrInput />;
+    return (
+      <div className="container mx-auto p-4 max-w-4xl space-y-6">
+        {/* Mode Toggle Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <CalendarDays className="h-5 w-5" />
+                Booking Dashboard
+              </span>
+              
+              {/* Mode Toggle */}
+              <div className="flex items-center gap-3">
+                <Label htmlFor="mode-toggle" className="text-sm font-medium">
+                  Booker
+                </Label>
+                <Switch
+                  id="mode-toggle"
+                  checked={mode === 'Owner'}
+                  onCheckedChange={(checked) => setMode(checked ? 'Owner' : 'Booker')}
+                />
+                <Label htmlFor="mode-toggle" className="text-sm font-medium">
+                  Calendar Owner
+                </Label>
+              </div>
+            </CardTitle>
+            <CardDescription>
+              {mode === 'Owner' 
+                ? 'Manage incoming booking invitations and requests'
+                : 'Book appointments and track your booking requests'
+              }
+            </CardDescription>
+          </CardHeader>
+        </Card>
+
+        {/* Content based on mode */}
+        {mode === 'Booker' ? (
+          <BookingTabs />
+        ) : (
+          <Bookings />
+        )}
+      </div>
+    );
   }
 
   return (

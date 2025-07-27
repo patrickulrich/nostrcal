@@ -23,6 +23,8 @@ import {
 import { format } from 'date-fns';
 import { useAuthor } from '@/hooks/useAuthor';
 import { getDisplayNameWithLoadingState } from '@/utils/displayName';
+import { parseAvailabilityTemplate } from '@/utils/parseAvailabilityTemplate';
+import { parseZapReceipt, isZapForAvailabilityTemplate } from '@/utils/nip57';
 
 interface BookingInvitationCardProps {
   invitation: BookingInvitation;
@@ -61,6 +63,11 @@ function BookingInvitationCard({ invitation, currentTab, onRSVP, isResponding }:
               <h3 className="font-semibold text-lg">{invitation.title}</h3>
               {invitation.isAllDay && (
                 <Badge variant="secondary">All Day</Badge>
+              )}
+              {invitation.isPaid && (
+                <Badge variant="default" className="bg-green-600 text-white">
+                  💰 {invitation.paidAmount} sats
+                </Badge>
               )}
             </div>
             
@@ -155,6 +162,8 @@ interface BookingInvitation {
   note?: string;
   isAllDay: boolean;
   created_at: number;
+  isPaid?: boolean;
+  paidAmount?: number; // in sats
 }
 
 export default function Bookings() {
@@ -209,6 +218,7 @@ export default function Bookings() {
           }], { signal })
         ]);
 
+
         setPublicEvents({ timeEvents, dayEvents, rsvps });
       } catch (err) {
         console.error('Failed to load public events:', err);
@@ -220,6 +230,9 @@ export default function Bookings() {
 
     loadPublicEvents();
   }, [user?.pubkey, nostr]); // Only reload when user or nostr changes, NOT when privateEvents change
+
+  // State for filtered invitations
+  const [filteredInvitations, setFilteredInvitations] = useState<BookingInvitation[]>([]);
 
   // CONCERN 3: Combine public + private data (no network calls, just processing)
   const invitations = useMemo(() => {
@@ -324,6 +337,7 @@ export default function Bookings() {
         event.tags.some(t => t[0] === 'p' && t[1] === user.pubkey)
       );
 
+
       privateCalendarEvents.forEach(event => {
         const dTag = event.tags.find(t => t[0] === 'd')?.[1];
         if (!dTag) return;
@@ -359,12 +373,137 @@ export default function Bookings() {
       });
 
       // Sort by start date (newest first)
-      return allInvitations.sort((a, b) => b.start.getTime() - a.start.getTime());
+      const sortedInvitations = allInvitations.sort((a, b) => b.start.getTime() - a.start.getTime());
+
+
+      return sortedInvitations;
     } catch (err) {
       console.error('Failed to process invitations:', err);
       return [];
     }
   }, [user?.pubkey, publicEvents, privateEvents]); // Recalculate when either public or private data changes
+
+  // Filter invitations based on payment verification
+  useEffect(() => {
+    const filterInvitations = async () => {
+      if (!user?.pubkey || invitations.length === 0) {
+        setFilteredInvitations(invitations);
+        return;
+      }
+
+
+      const filtered: BookingInvitation[] = [];
+      
+      for (const invitation of invitations) {
+        // Check if invitation has an 'a' tag reference to availability template
+        // For private events, we need to look at the original rumor to find the 'a' tag
+        const originalEvent = privateEvents.find(e => e.id === invitation.eventId);
+        const aTag = originalEvent?.tags.find(t => t[0] === 'a')?.[1];
+        
+        if (!aTag) {
+          // No template reference, show the invitation (not paid)
+          filtered.push({ ...invitation, isPaid: false });
+          continue;
+        }
+
+        try {
+          // Fetch the availability template to check if it requires payment
+          const templateEvents = await nostr.query([{
+            kinds: [31926],
+            '#d': [aTag.split(':')[2]], // extract identifier from coordinate
+            authors: [aTag.split(':')[1]], // extract pubkey from coordinate
+            limit: 1
+          }], { signal: AbortSignal.timeout(2000) });
+          
+          if (templateEvents.length === 0) {
+            // Template not found, show the invitation
+            filtered.push(invitation);
+            continue;
+          }
+          
+          const template = parseAvailabilityTemplate(templateEvents[0]);
+          if (!template.amount || template.amount <= 0) {
+            // No payment required, show the invitation
+            filtered.push(invitation);
+            continue;
+          }
+          
+          // Check if user has valid zap receipt for this template
+          // Use the same multi-relay approach that works in LightningPayment
+          const popularZapRelays = [
+            'wss://relay.nostr.band',
+            'wss://nostr.wine', 
+            'wss://relay.snort.social',
+            'wss://relay.damus.io',
+            'wss://nos.lol',
+            'wss://relay.primal.net',
+            'wss://relay.nostrcal.com'
+          ];
+
+          const recipientPubkey = aTag.split(':')[1];
+
+          const [templateZaps, recipientZaps] = await Promise.all([
+            // Query by template coordinate
+            nostr.query([{
+              kinds: [9735], // zap receipts
+              '#a': [aTag], // referencing the availability template
+              limit: 10
+            }], { 
+              signal: AbortSignal.timeout(5000),
+              relays: popularZapRelays
+            }),
+            
+            // Query for zap receipts TO the template recipient
+            nostr.query([{
+              kinds: [9735], // zap receipts
+              '#p': [recipientPubkey], // zapped TO this person
+              since: Math.floor(Date.now() / 1000) - 3600, // Last hour
+              limit: 20
+            }], { 
+              signal: AbortSignal.timeout(5000),
+              relays: popularZapRelays
+            })
+          ]);
+
+          // Combine and deduplicate zap events
+          const allZapEventIds = new Set();
+          const zapEvents = [...templateZaps, ...recipientZaps].filter(event => {
+            if (allZapEventIds.has(event.id)) return false;
+            allZapEventIds.add(event.id);
+            return true;
+          });
+          
+          // Check if any zap receipt meets the required amount using our working logic
+          const hasValidZap = zapEvents.some(zapEvent => {
+            const parsed = parseZapReceipt(zapEvent);
+            if (!parsed || !parsed.isValid) return false;
+            
+            // For bookings page, we check if someone paid TO the organizer (current user)
+            // parsed.recipient should be the current user (organizer)
+            // parsed.sender is the person who made the booking and payment
+            return parsed.recipient === user.pubkey &&
+              template.amount &&
+              isZapForAvailabilityTemplate(parsed, aTag, template.amount);
+          });
+          
+          if (hasValidZap) {
+            // Mark as paid since it came from a paid template and payment was verified
+            filtered.push({ ...invitation, isPaid: true, paidAmount: template.amount });
+          }
+          
+        } catch (error) {
+          console.error('Error checking payment requirements for invitation:', invitation.id, error);
+          // On error, show the invitation to avoid hiding valid requests (not paid)
+          filtered.push({ ...invitation, isPaid: false });
+        }
+      }
+      
+      
+      setFilteredInvitations(filtered);
+    };
+
+    filterInvitations();
+  }, [invitations, user?.pubkey, privateEvents, nostr]);
 
   // Combined loading state
   const loading = publicLoading;
@@ -468,9 +607,9 @@ export default function Bookings() {
     }
   };
 
-  const filterInvitations = () => {
+  const filterInvitationsByTab = () => {
     const now = new Date();
-    const futureInvitations = invitations.filter(inv => inv.start > now);
+    const futureInvitations = filteredInvitations.filter(inv => inv.start > now);
 
     switch (currentTab) {
       case 'pending':
@@ -541,7 +680,7 @@ export default function Bookings() {
     );
   }
 
-  const filteredInvitations = filterInvitations();
+  const tabFilteredInvitations = filterInvitationsByTab();
 
   return (
     <div className="container mx-auto p-4 max-w-4xl">
@@ -557,20 +696,20 @@ export default function Bookings() {
             <TabsList className="grid w-full grid-cols-3 mb-6">
               <TabsTrigger value="pending" className="flex items-center gap-2">
                 <HelpCircle className="h-4 w-4" />
-                Pending ({invitations.filter(inv => !inv.status && inv.start > new Date()).length})
+                Pending ({filteredInvitations.filter(inv => !inv.status && inv.start > new Date()).length})
               </TabsTrigger>
               <TabsTrigger value="accepted" className="flex items-center gap-2">
                 <CheckCircle className="h-4 w-4" />
-                Accepted ({invitations.filter(inv => inv.status === 'accepted' && inv.start > new Date()).length})
+                Accepted ({filteredInvitations.filter(inv => inv.status === 'accepted' && inv.start > new Date()).length})
               </TabsTrigger>
               <TabsTrigger value="declined" className="flex items-center gap-2">
                 <XCircle className="h-4 w-4" />
-                Declined ({invitations.filter(inv => (inv.status === 'declined' || inv.status === 'tentative') && inv.start > new Date()).length})
+                Declined ({filteredInvitations.filter(inv => (inv.status === 'declined' || inv.status === 'tentative') && inv.start > new Date()).length})
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value={currentTab}>
-              {filteredInvitations.length === 0 ? (
+              {tabFilteredInvitations.length === 0 ? (
                 <Card className="border-dashed">
                   <CardContent className="py-8 text-center">
                     <p className="text-muted-foreground">
@@ -586,7 +725,7 @@ export default function Bookings() {
               ) : (
                 <ScrollArea className="h-[500px] pr-4">
                   <div className="space-y-4">
-                    {filteredInvitations.map(invitation => (
+                    {tabFilteredInvitations.map(invitation => (
                       <BookingInvitationCard
                         key={invitation.id}
                         invitation={invitation}

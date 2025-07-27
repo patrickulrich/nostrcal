@@ -1,7 +1,8 @@
 import { NostrEvent } from '@nostrify/nostrify';
+import { relayCache } from '@/utils/relay-cache';
 
 /**
- * NIP-52 Relay Preferences utilities for private calendar events
+ * Relay Preferences utilities for NIP-52 (private events) and NIP-65 (general relay lists)
  */
 
 export interface RelayPreference {
@@ -11,7 +12,7 @@ export interface RelayPreference {
 }
 
 /**
- * Parse kind 10050 relay preferences
+ * Parse kind 10050 relay preferences (NIP-52 private events)
  */
 export function parseRelayPreferences(event: NostrEvent): RelayPreference[] {
   if (event.kind !== 10050) {
@@ -24,6 +25,23 @@ export function parseRelayPreferences(event: NostrEvent): RelayPreference[] {
       url: tag[1],
       read: tag[2] !== 'write',
       write: tag[2] !== 'read'
+    }));
+}
+
+/**
+ * Parse kind 10002 relay list metadata (NIP-65 general relays)
+ */
+export function parseRelayListMetadata(event: NostrEvent): RelayPreference[] {
+  if (event.kind !== 10002) {
+    throw new Error('Event is not a relay list metadata event (kind 10002)');
+  }
+  
+  return event.tags
+    .filter(tag => tag[0] === 'r' && tag[1])
+    .map(tag => ({
+      url: tag[1],
+      read: tag[2] !== 'write',   // read unless explicitly write-only
+      write: tag[2] !== 'read'    // write unless explicitly read-only
     }));
 }
 
@@ -53,13 +71,24 @@ export function createRelayPreferencesEvent(relays: RelayPreference[]): Partial<
 }
 
 /**
- * Get default relay preferences for private calendar events
+ * Get default relay preferences for private calendar events (NIP-52)
  */
 export function getDefaultRelayPreferences(): RelayPreference[] {
   return [
     { url: 'wss://relay.nostrcal.com', read: true, write: true },
     { url: 'wss://auth.nostr1.com', read: true, write: true },
     { url: 'wss://relay.nostr.band', read: true, write: true }
+  ];
+}
+
+/**
+ * Get default general relays when author hasn't published kind 10002 (NIP-65)
+ */
+export function getDefaultGeneralRelays(): RelayPreference[] {
+  return [
+    { url: 'wss://relay.damus.io', read: true, write: true },
+    { url: 'wss://nos.lol', read: true, write: true },
+    { url: 'wss://relay.primal.net', read: true, write: true }
   ];
 }
 
@@ -73,7 +102,7 @@ export function getWriteRelays(preferences: RelayPreference[]): string[] {
 }
 
 /**
- * Query a participant's relay preferences
+ * Query a participant's relay preferences (NIP-52 private events)
  * Returns their published preferences or defaults if not found
  */
 export async function getParticipantRelayPreferences(
@@ -100,6 +129,58 @@ export async function getParticipantRelayPreferences(
 
   // Return defaults if no preferences found or query failed
   return getDefaultRelayPreferences();
+}
+
+/**
+ * Query an author's relay list metadata (NIP-65 general relays) with caching
+ * Returns their published relay list or defaults if not found
+ */
+export async function getAuthorRelayListMetadata(
+  pubkey: string,
+  nostr: { query: (filters: unknown[], options?: unknown) => Promise<NostrEvent[]> }
+): Promise<RelayPreference[]> {
+  // Check cache first
+  const cached = relayCache.get(pubkey);
+  if (cached) {
+    return cached;
+  }
+
+  try {
+    const signal = AbortSignal.timeout(5000);
+    const events = await nostr.query([
+      {
+        kinds: [10002],
+        authors: [pubkey],
+        limit: 1
+      }
+    ], { signal });
+
+    if (events.length > 0) {
+      const relayList = parseRelayListMetadata(events[0]);
+      const result = relayList.length > 0 ? relayList : getDefaultGeneralRelays();
+      
+      // Cache the result (ensure read/write are boolean, not undefined)
+      const resultWithBooleans = result.map(r => ({
+        url: r.url,
+        read: r.read !== false,
+        write: r.write !== false
+      }));
+      relayCache.set(pubkey, resultWithBooleans);
+      return result;
+    }
+  } catch (error) {
+    console.warn(`Failed to fetch relay list metadata for ${pubkey}:`, error);
+  }
+
+  // Return defaults if no relay list found or query failed
+  const defaults = getDefaultGeneralRelays();
+  const defaultsWithBooleans = defaults.map(r => ({
+    url: r.url,
+    read: r.read !== false,
+    write: r.write !== false
+  }));
+  relayCache.set(pubkey, defaultsWithBooleans);
+  return defaults;
 }
 
 /**

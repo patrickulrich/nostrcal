@@ -10,7 +10,10 @@
       "Bash(npm run test:*)",
       "Bash(npm test)",
       "Bash(find:*)",
-      "Bash(npm run lint)"
+      "Bash(npm run lint)",
+      "mcp__nostrbook__read_kind",
+      "mcp__nostrbook__read_nip",
+      "mcp__nostrbook__read_nips_index"
     ]
   },
   "enableAllProjectMcpServers": true,

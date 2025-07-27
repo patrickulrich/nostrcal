@@ -33,10 +33,16 @@ export function useNostrPublish(): UseMutationResult<NostrEvent> {
       }
     },
     onError: (error) => {
-      console.error("Failed to publish event:", error);
+      // Event publishing failed
+      if (import.meta.env.DEV) {
+        console.error("Failed to publish event:", error);
+      }
     },
     onSuccess: (data) => {
-      console.log("Event published successfully:", data);
+      // Event published successfully
+      if (import.meta.env.DEV) {
+        console.log("Event published successfully:", data);
+      }
     },
   });
 }

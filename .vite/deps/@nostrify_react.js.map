@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/@nostrify/react/NostrContext.ts", "../../node_modules/@nostrify/react/useNostr.ts"],
+  "sourcesContent": ["import { type Context, createContext } from 'react';\n\nimport type { NPool } from 'jsr:@nostrify/nostrify@^0.46.4';\n\n/** The shape of the Nostr context provided by NostrProvider. */\nexport interface NostrContextType {\n  /** The Nostr relay pool for querying and publishing events */\n  nostr: NPool;\n}\n\n/**\n * React context for Nostr functionality.\n * Use this with useContext or the useNostr hook to access Nostr features.\n */\nexport const NostrContext: Context<NostrContextType | undefined> = createContext<NostrContextType | undefined>(\n  undefined,\n);\n", "import { useContext } from 'react';\n\nimport { NostrContext, type NostrContextType } from './NostrContext.js';\n\nexport function useNostr(): NostrContextType {\n  const context = useContext(NostrContext);\n\n  if (!context) {\n    throw new Error('useNostr must be used within a NostrProvider');\n  }\n\n  return context;\n}\n"],
+  "mappings": ";;;;;;;;AAAA,mBAAoC;AAc7B,IAAM,mBAAsD,4BACjE,MAAA;;;ACfF,IAAAA,gBAAmB;AAIZ,SAAS,WAAA;AACd,QAAM,cAAU,0BAAW,YAAA;AAE3B,MAAI,CAAC,SAAS;AACZ,UAAM,IAAI,MAAM,8CAAA;EAClB;AAEA,SAAO;AACT;",
+  "names": ["import_react"]
+}

@@ -22,8 +22,8 @@ import { NostrEvent } from '@nostrify/nostrify';
  */
 export function usePrivateCalendarEvents() {
   const { nostr } = useNostr();
-  const { user } = useCurrentUser();
-  const { preferences: _preferences } = useRelayPreferences();
+  const { user, isLoading: isUserLoading } = useCurrentUser();
+  const { preferences: _preferences, isLoading: isLoadingPreferences } = useRelayPreferences();
   const { config: _config } = useAppContext();
   const [privateEvents, setPrivateEvents] = useState<Rumor[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -36,9 +36,21 @@ export function usePrivateCalendarEvents() {
 
   // Stream private events as they're decrypted
   useEffect(() => {
+    // Wait for user loading to complete (handles nsec race condition)
+    if (isUserLoading) {
+      return;
+    }
+
+    // If no user logged in, no private events to show
     if (!user?.pubkey || !user?.signer) {
-      setPrivateEvents([]);
-      setLastUserPubkey(null);
+      // Only update state if it needs to change to prevent infinite re-renders
+      setPrivateEvents(prev => prev.length > 0 ? [] : prev);
+      setLastUserPubkey(prev => prev !== null ? null : prev);
+      return;
+    }
+
+    // ✅ Wait for relay preferences to load before starting private event stream
+    if (isLoadingPreferences) {
       return;
     }
 
@@ -63,6 +75,13 @@ export function usePrivateCalendarEvents() {
 
 
         // Use memoized read relays from user's 10050 preferences
+
+        console.log('[PrivateEvents] Starting subscription for user:', {
+          pubkey: user.pubkey,
+          signerType: user.signer?.constructor?.name,
+          relaysCount: readRelays.length,
+          filter
+        });
 
         const subscription = nostr.req([filter], { 
           signal: controller.signal,
@@ -94,6 +113,12 @@ export function usePrivateCalendarEvents() {
             const event = msg[2]; // ✅ Extract actual event from msg[2]
             _eventCount++;
             
+            console.log('[PrivateEvents] Received event:', {
+              eventId: event.id,
+              kind: event.kind,
+              isGiftWrap: isGiftWrap(event),
+              userType: user.signer?.constructor?.name
+            });
             
             if (!isGiftWrap(event)) {
               continue;
@@ -108,10 +133,29 @@ export function usePrivateCalendarEvents() {
             // Process decryption asynchronously to not block the stream
             (async () => {
               try {
+                console.log('[PrivateEvents] Attempting to decrypt event:', { 
+                  eventId: event.id, 
+                  signerType: user.signer?.constructor?.name,
+                  timestamp: Date.now()
+                });
+                
                 const rumor = await unwrapPrivateEventWithSigner(event, user.signer!);
+                
+                console.log('[PrivateEvents] Decryption result:', { 
+                  eventId: event.id, 
+                  success: !!rumor, 
+                  isCalendarRumor: rumor ? isCalendarRumor(rumor) : false,
+                  timestamp: Date.now()
+                });
                 
                 if (rumor && rumor.id && isCalendarRumor(rumor) && isMounted) {
                   decryptedCount++;
+                  console.log('[PrivateEvents] Adding decrypted calendar event:', { 
+                    rumorId: rumor.id, 
+                    kind: rumor.kind, 
+                    decryptedCount,
+                    timestamp: Date.now()
+                  });
                   
                   // Add the decrypted event immediately for real-time streaming
                   setPrivateEvents(prev => {
@@ -127,16 +171,28 @@ export function usePrivateCalendarEvents() {
                     setIsProcessing(false);
                   }
                 }
-              } catch {
-                // Silently ignore decryption failures - these are expected for events not intended for this user
+              } catch (error) {
+                console.log('[PrivateEvents] Decryption failed for event:', { 
+                  eventId: event.id, 
+                  error: error instanceof Error ? error.message : 'Unknown error',
+                  timestamp: Date.now()
+                });
               }
             })();
             
           } else if (msg[0] === 'EOSE') {
+            console.log('[PrivateEvents] EOSE received:', {
+              userType: user.signer?.constructor?.name,
+              eventCount: _eventCount,
+              decryptedCount
+            });
             if (isMounted) {
               setIsProcessing(false); // Always clear loading on EOSE, even if no events decrypted
             }
           } else if (msg[0] === 'CLOSED') {
+            console.log('[PrivateEvents] Subscription closed:', {
+              userType: user.signer?.constructor?.name
+            });
             break;
           }
         }
@@ -163,15 +219,15 @@ export function usePrivateCalendarEvents() {
       isMounted = false;
       controller.abort();
     };
-  }, [user?.pubkey, user?.signer, nostr, readRelays, lastUserPubkey]);
+  }, [user?.pubkey, user?.signer, nostr, readRelays, lastUserPubkey, isLoadingPreferences, isUserLoading]);
 
   // Wrap in a query-like interface for compatibility
   const query = {
     data: privateEvents,
-    isLoading: isProcessing,
+    isLoading: isProcessing || isLoadingPreferences, // Include relay preferences loading
     error: null,
     isError: false,
-    isSuccess: !isProcessing
+    isSuccess: !isProcessing && !isLoadingPreferences
   };
 
   const createPrivateEvent = useMutation({

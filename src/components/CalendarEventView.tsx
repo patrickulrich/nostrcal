@@ -199,11 +199,6 @@ export function CalendarEventView({ event }: CalendarEventViewProps) {
                     {metadata?.name || genUserName(event.pubkey)}
                   </span>
                 </div>
-                {metadata?.about && (
-                  <p className="text-xs text-muted-foreground mt-1 max-w-md">
-                    {metadata.about}
-                  </p>
-                )}
               </div>
             </div>
 

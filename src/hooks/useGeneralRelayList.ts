@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNostr } from '@nostrify/react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { NostrEvent } from '@nostrify/nostrify';
@@ -74,4 +74,51 @@ export function useGeneralRelayList() {
     error: query.error,
     hasGeneralRelays: query.data !== null && Array.isArray(query.data) && query.data.length > 0
   };
+}
+
+/**
+ * Hook to publish general relay list (kind 10002) - NIP-65
+ */
+export function usePublishGeneralRelayList() {
+  const { nostr } = useNostr();
+  const { user } = useCurrentUser();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (relays: GeneralRelay[]) => {
+      if (!user?.signer) {
+        throw new Error('User not authenticated');
+      }
+
+      // Create kind 10002 event tags
+      const tags = relays.map(relay => {
+        const tag = ['r', relay.url];
+        
+        if (relay.read === false && relay.write === true) {
+          tag.push('write');
+        } else if (relay.read === true && relay.write === false) {
+          tag.push('read');
+        }
+        // If both read and write are true (or undefined), no third parameter needed
+        
+        return tag;
+      });
+
+      const unsignedEvent = {
+        kind: 10002,
+        created_at: Math.floor(Date.now() / 1000),
+        tags,
+        content: '',
+      };
+
+      const signedEvent = await user.signer.signEvent(unsignedEvent);
+      const result = await nostr.event(signedEvent);
+
+      // Invalidate the relay list query to refetch
+      queryClient.invalidateQueries({ queryKey: ['general-relay-list', user.pubkey] });
+
+      console.log('[NIP-65] Published general relay list (kind 10002) with', relays.length, 'relays');
+      return result;
+    },
+  });
 }

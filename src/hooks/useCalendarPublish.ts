@@ -1,6 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNostr } from '@nostrify/react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useNIP65RelayRouting } from '@/hooks/useNIP65RelayRouting';
+import { usePublishGeneralRelayList } from '@/hooks/useGeneralRelayList';
+import { useGeneralRelayConfig } from '@/hooks/useGeneralRelayConfig';
+import { extractLnurlFromProfile } from '@/utils/nip57';
 
 interface Participant {
   pubkey: string;
@@ -70,6 +74,9 @@ export function useCalendarPublish() {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
+  const { getRelaysForPublishing: _getRelaysForPublishing } = useNIP65RelayRouting();
+  const publishGeneralRelayList = usePublishGeneralRelayList();
+  const { generalRelays } = useGeneralRelayConfig();
 
   return useMutation({
     mutationFn: async (eventData: CreateCalendarEventData) => {
@@ -170,7 +177,27 @@ export function useCalendarPublish() {
 
       // Sign and publish the event
       const signedEvent = await user.signer.signEvent(unsignedEvent);
+      
+      // NIP-65: Get optimal relays for publishing (includes mentioned users' read relays)
+      try {
+        const optimalRelays = await _getRelaysForPublishing(signedEvent);
+        console.log(`[NIP-65] Publishing calendar event to ${optimalRelays.length} optimal relays:`, optimalRelays);
+      } catch (error) {
+        console.warn('[NIP-65] Failed to get optimal relays, using default publishing:', error);
+      }
+      
       const result = await nostr.event(signedEvent);
+      
+      // NIP-65: Propagate user's kind 10002 relay list to the same relays
+      try {
+        if (generalRelays.length > 0) {
+          await publishGeneralRelayList.mutateAsync(generalRelays);
+          console.log('[NIP-65] Successfully propagated kind 10002 relay list after event publishing');
+        }
+      } catch (error) {
+        console.warn('[NIP-65] Failed to propagate kind 10002 relay list:', error);
+        // Don't fail the main event publishing if relay list propagation fails
+      }
       
       // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
@@ -242,6 +269,21 @@ export function useCreateAvailabilityTemplate() {
       }
 
       if (templateData.amount && templateData.amount > 0) {
+        // Validate that user has Lightning payment setup before allowing paid templates
+        const userProfile = await nostr.query([{
+          kinds: [0],
+          authors: [user.pubkey],
+          limit: 1
+        }]);
+        
+        const metadata = userProfile[0] ? JSON.parse(userProfile[0].content) : {};
+        const lnurl = extractLnurlFromProfile(metadata);
+        
+        if (!lnurl) {
+          const action = templateData.dTag ? 'updating' : 'creating';
+          throw new Error(`Lightning payment setup required: Please add a Lightning Address (lud16) or LNURL (lud06) to your profile before ${action} paid availability templates`);
+        }
+        
         tags.push(['amount', templateData.amount.toString()]);
       }
 

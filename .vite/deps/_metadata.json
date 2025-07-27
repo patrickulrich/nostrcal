@@ -1,0 +1,127 @@
+{
+  "hash": "32608cb0",
+  "configHash": "81f6253f",
+  "lockfileHash": "988a9363",
+  "browserHash": "275f67b1",
+  "optimized": {
+    "react/jsx-dev-runtime": {
+      "src": "../../node_modules/react/jsx-dev-runtime.js",
+      "file": "react_jsx-dev-runtime.js",
+      "fileHash": "e0e6cacc",
+      "needsInterop": true
+    },
+    "react-dom/client": {
+      "src": "../../node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "b838af9a",
+      "needsInterop": true
+    },
+    "@tanstack/react-query": {
+      "src": "../../node_modules/@tanstack/react-query/build/modern/index.js",
+      "file": "@tanstack_react-query.js",
+      "fileHash": "15b7b5a1",
+      "needsInterop": false
+    },
+    "@unhead/react/client": {
+      "src": "../../node_modules/@unhead/react/dist/client.mjs",
+      "file": "@unhead_react_client.js",
+      "fileHash": "9db0c9f4",
+      "needsInterop": false
+    },
+    "@unhead/addons": {
+      "src": "../../node_modules/@unhead/addons/dist/index.mjs",
+      "file": "@unhead_addons.js",
+      "fileHash": "03d31046",
+      "needsInterop": false
+    },
+    "react": {
+      "src": "../../node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "534339dc",
+      "needsInterop": true
+    },
+    "@nostrify/react/login": {
+      "src": "../../node_modules/@nostrify/react/login/mod.js",
+      "file": "@nostrify_react_login.js",
+      "fileHash": "3ef31e37",
+      "needsInterop": false
+    },
+    "react-router-dom": {
+      "src": "../../node_modules/react-router-dom/dist/index.js",
+      "file": "react-router-dom.js",
+      "fileHash": "dca11753",
+      "needsInterop": false
+    },
+    "nostr-tools": {
+      "src": "../../node_modules/nostr-tools/lib/esm/index.js",
+      "file": "nostr-tools.js",
+      "fileHash": "861ad519",
+      "needsInterop": false
+    },
+    "@unhead/react": {
+      "src": "../../node_modules/@unhead/react/dist/index.mjs",
+      "file": "@unhead_react.js",
+      "fileHash": "8eee026d",
+      "needsInterop": false
+    },
+    "lucide-react": {
+      "src": "../../node_modules/lucide-react/dist/esm/lucide-react.js",
+      "file": "lucide-react.js",
+      "fileHash": "5c3e1ae4",
+      "needsInterop": false
+    },
+    "@nostrify/react": {
+      "src": "../../node_modules/@nostrify/react/mod.js",
+      "file": "@nostrify_react.js",
+      "fileHash": "4f122949",
+      "needsInterop": false
+    },
+    "react-leaflet": {
+      "src": "../../node_modules/react-leaflet/lib/index.js",
+      "file": "react-leaflet.js",
+      "fileHash": "6b7e7263",
+      "needsInterop": false
+    },
+    "leaflet": {
+      "src": "../../node_modules/leaflet/dist/leaflet-src.js",
+      "file": "leaflet.js",
+      "fileHash": "2daf4fc3",
+      "needsInterop": true
+    },
+    "date-fns": {
+      "src": "../../node_modules/date-fns/index.mjs",
+      "file": "date-fns.js",
+      "fileHash": "3eeef6db",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-AHTNCH5X": {
+      "file": "chunk-AHTNCH5X.js"
+    },
+    "chunk-WUPXDLAB": {
+      "file": "chunk-WUPXDLAB.js"
+    },
+    "chunk-ROXIBW6L": {
+      "file": "chunk-ROXIBW6L.js"
+    },
+    "chunk-A2GBXVCZ": {
+      "file": "chunk-A2GBXVCZ.js"
+    },
+    "chunk-Q2Y7TJID": {
+      "file": "chunk-Q2Y7TJID.js"
+    },
+    "chunk-X3VLT5EQ": {
+      "file": "chunk-X3VLT5EQ.js"
+    },
+    "chunk-M4LH6E6O": {
+      "file": "chunk-M4LH6E6O.js"
+    },
+    "chunk-2CLD7BNN": {
+      "file": "chunk-2CLD7BNN.js"
+    },
+    "chunk-WOOG5QLI": {
+      "file": "chunk-WOOG5QLI.js"
+    }
+  }
+}

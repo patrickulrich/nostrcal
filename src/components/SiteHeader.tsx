@@ -48,7 +48,7 @@ const navigationItems = [
   },
   {
     title: 'Bookings',
-    href: '/bookings',
+    href: '/booking',
     icon: BookmarkCheck,
     description: 'Manage booking requests',
     requiresAuth: true

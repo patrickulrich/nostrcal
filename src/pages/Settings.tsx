@@ -35,15 +35,18 @@ import {
   Shield,
   ShieldCheck,
   Upload,
-  AlertTriangle
+  AlertTriangle,
+  Lock
 } from 'lucide-react';
 import { useToast } from '@/hooks/useToast';
 import { useRelayStatus } from '@/hooks/useRelayStatus';
 import { useAuthor } from '@/hooks/useAuthor';
 import { useRelayPreferences } from '@/hooks/useRelayPreferences';
 import { useBlossomServers } from '@/hooks/useBlossomServers';
-import { useGeneralRelayList } from '@/hooks/useGeneralRelayList';
+import { useGeneralRelayList, usePublishGeneralRelayList } from '@/hooks/useGeneralRelayList';
+import { useGeneralRelayConfig } from '@/hooks/useGeneralRelayConfig';
 import { PrivateEventDebug } from '@/components/PrivateEventDebug';
+import { isAuthEnabledRelay } from '@/utils/nostr-auth';
 
 export default function Settings() {
   const { user } = useCurrentUser();
@@ -73,6 +76,13 @@ export default function Settings() {
     isUpdating: isUpdatingRelayPrefs 
   } = useRelayPreferences();
   const { generalRelays, hasGeneralRelays, isLoading: isLoadingGeneralRelays } = useGeneralRelayList();
+  const publishGeneralRelayList = usePublishGeneralRelayList();
+  const { 
+    generalRelays: configuredGeneralRelays, 
+    addGeneralRelay, 
+    removeGeneralRelay, 
+    toggleRelayPermission 
+  } = useGeneralRelayConfig();
   
   const [activeTab, setActiveTab] = useState<'general' | 'relays' | 'profile' | 'debug'>('general');
   const [newRelay, setNewRelay] = useState('');
@@ -179,52 +189,36 @@ export default function Settings() {
       return;
     }
 
-    // Check if relay already exists
-    const currentRelays = config.relayUrls || [];
-    if (currentRelays.includes(newRelay)) {
+    try {
+      addGeneralRelay(newRelay, true, true); // Default to read+write
+      setNewRelay('');
       toast({
-        title: "Relay Already Added",
-        description: "This relay is already in your list",
+        title: "Relay Added",
+        description: "Relay has been added to your list with read and write permissions",
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to Add Relay",
+        description: error instanceof Error ? error.message : "This relay is already in your list",
         variant: "destructive"
       });
-      return;
     }
-
-    // Add to relay list (always add to local config for now)
-    updateConfig(prev => ({
-      ...prev,
-      relayUrls: [...(prev.relayUrls || []), newRelay]
-    }));
-    
-    setNewRelay('');
-    toast({
-      title: "Relay Added",
-      description: "Relay has been added to your list",
-    });
   };
 
   const removeRelay = (url: string) => {
-    const currentRelays = config.relayUrls || [];
-    // Don't allow removing the last relay
-    if (currentRelays.length <= 1) {
+    try {
+      removeGeneralRelay(url);
+      toast({
+        title: "Relay Removed",
+        description: "Relay has been removed from your list",
+      });
+    } catch (error) {
       toast({
         title: "Cannot Remove Relay",
-        description: "You must have at least one relay configured",
+        description: error instanceof Error ? error.message : "You must have at least one relay configured",
         variant: "destructive"
       });
-      return;
     }
-
-    // Remove from relay list (only from local config)
-    updateConfig(prev => ({
-      ...prev,
-      relayUrls: currentRelays.filter(relayUrl => relayUrl !== url)
-    }));
-    
-    toast({
-      title: "Relay Removed",
-      description: "Relay has been removed from your list",
-    });
   };
 
   const addPrivateRelay = () => {
@@ -637,6 +631,10 @@ export default function Settings() {
                     </CardTitle>
                     <CardDescription>
                       Used for public events, profiles, and general app functionality. Lower authentication requirements.
+                      <br />
+                      <span className="text-xs text-muted-foreground mt-1 block">
+                        💡 NIP-65 best practice: Keep 2-4 read relays and 2-4 write relays for optimal performance and reliability.
+                      </span>
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-6">
@@ -660,13 +658,21 @@ export default function Settings() {
                       </div>
                       
                       <div className="text-sm text-muted-foreground">
-                        {(config.relayUrls || []).length} relay{(config.relayUrls || []).length === 1 ? '' : 's'} configured
+                        {configuredGeneralRelays.length} relay{configuredGeneralRelays.length === 1 ? '' : 's'} configured
+                        {configuredGeneralRelays.length > 6 && (
+                          <span className="text-orange-600 ml-2">
+                            ⚠️ NIP-65 recommends 2-4 relays per category for optimal performance
+                          </span>
+                        )}
                       </div>
                       
                       <div className="flex flex-wrap gap-2">
-                        {(config.relayUrls || []).map((url) => (
-                          <Badge key={url} variant="secondary" className="text-xs">
-                            {presetRelays?.find(r => r.url === url)?.name || url}
+                        {configuredGeneralRelays.map((relay) => (
+                          <Badge key={relay.url} variant="secondary" className="text-xs">
+                            {presetRelays?.find(r => r.url === relay.url)?.name || relay.url}
+                            {' '}({relay.read && relay.write ? 'R/W' : 
+                                  relay.read ? 'R' : 
+                                  relay.write ? 'W' : 'None'})
                           </Badge>
                         ))}
                       </div>
@@ -709,43 +715,72 @@ export default function Settings() {
                     <div className="space-y-4">
                       <h4 className="font-medium">Manage General Relays</h4>
                       
-                      {/* Current Relays List */}
+                      {/* Current General Relays List with Read/Write Toggles */}
                       <div className="space-y-3">
-                        {relayStatuses.filter(relay => (config.relayUrls || []).includes(relay.url)).map((relay) => (
-                          <div key={relay.url} className="flex items-center justify-between p-3 border rounded-lg">
-                            <div className="flex items-center gap-3">
-                              <div className="flex items-center gap-2">
-                                {relay.connected ? (
-                                  <Wifi className="h-4 w-4 text-green-500" />
-                                ) : (
-                                  <WifiOff className="h-4 w-4 text-red-500" />
-                                )}
-                                <span className="font-medium">{relay.url}</span>
+                        {configuredGeneralRelays.map((relayConfig) => {
+                          const relayStatus = relayStatuses.find(r => r.url === relayConfig.url);
+                          return (
+                            <div key={relayConfig.url} className="flex items-center justify-between p-3 border rounded-lg">
+                              <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2">
+                                  {relayStatus?.connected ? (
+                                    <Wifi className="h-4 w-4 text-green-500" />
+                                  ) : (
+                                    <WifiOff className="h-4 w-4 text-red-500" />
+                                  )}
+                                  <span className="font-medium">{relayConfig.url}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {relayStatus && (
+                                    <Badge variant={relayStatus.connected ? "default" : "secondary"}>
+                                      {relayStatus.connected ? "Connected" : relayStatus.readyStateText}
+                                    </Badge>
+                                  )}
+                                  <Badge variant="outline" className="text-xs">
+                                    {relayConfig.read && relayConfig.write ? 'R/W' : 
+                                     relayConfig.read ? 'Read' : 
+                                     relayConfig.write ? 'Write' : 'None'}
+                                  </Badge>
+                                </div>
                               </div>
-                              <Badge variant={relay.connected ? "default" : "secondary"}>
-                                {relay.connected ? "Connected" : relay.readyStateText}
-                              </Badge>
+                              
+                              <div className="flex items-center gap-2">
+                                {/* Read/Write Toggle Buttons */}
+                                <Button
+                                  size="sm"
+                                  variant={relayConfig.read ? "default" : "outline"}
+                                  onClick={() => toggleRelayPermission(relayConfig.url, 'read')}
+                                  className="text-xs px-2"
+                                >
+                                  Read
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant={relayConfig.write ? "default" : "outline"}
+                                  onClick={() => toggleRelayPermission(relayConfig.url, 'write')}
+                                  className="text-xs px-2"
+                                >
+                                  Write
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => testRelay(relayConfig.url)}
+                                  disabled={testingRelay === relayConfig.url}
+                                >
+                                  Test
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="ghost"
+                                  onClick={() => removeRelay(relayConfig.url)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </div>
-                            
-                            <div className="flex items-center gap-2">
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => testRelay(relay.url)}
-                                disabled={testingRelay === relay.url}
-                              >
-                                Test
-                              </Button>
-                              <Button 
-                                size="sm" 
-                                variant="ghost"
-                                onClick={() => removeRelay(relay.url)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
 
                       {/* Add New Relay */}
@@ -770,20 +805,25 @@ export default function Settings() {
                         <div>
                           <h5 className="font-medium mb-2">Quick Add Preset Relays</h5>
                           <div className="flex flex-wrap gap-2">
-                            {presetRelays?.filter(relay => !(config.relayUrls || []).includes(relay.url)).map(relay => (
+                            {presetRelays?.filter(relay => !configuredGeneralRelays.some(r => r.url === relay.url)).map(relay => (
                               <Button
                                 key={relay.url}
                                 variant="outline"
                                 size="sm"
                                 onClick={() => {
-                                  updateConfig(prev => ({
-                                    ...prev,
-                                    relayUrls: [...(prev.relayUrls || []), relay.url]
-                                  }));
-                                  toast({
-                                    title: "Relay Added",
-                                    description: `${relay.name} has been added to your list`,
-                                  });
+                                  try {
+                                    addGeneralRelay(relay.url, true, true); // Default to read+write
+                                    toast({
+                                      title: "Relay Added",
+                                      description: `${relay.name} has been added to your list with read and write permissions`,
+                                    });
+                                  } catch (error) {
+                                    toast({
+                                      title: "Failed to Add Relay",
+                                      description: error instanceof Error ? error.message : "This relay is already in your list",
+                                      variant: "destructive"
+                                    });
+                                  }
                                 }}
                               >
                                 <Plus className="h-3 w-3 mr-1" />
@@ -803,15 +843,24 @@ export default function Settings() {
                           </div>
                           <Button
                             variant="outline"
-                            onClick={() => {
-                              // TODO: Implement general relay list publishing
-                              toast({
-                                title: "Coming Soon",
-                                description: "General relay list publishing will be implemented soon",
-                              });
+                            onClick={async () => {
+                              try {
+                                await publishGeneralRelayList.mutateAsync(configuredGeneralRelays);
+                                toast({
+                                  title: "Published",
+                                  description: `General relay list (kind 10002) published with ${configuredGeneralRelays.length} relays`,
+                                });
+                              } catch (error) {
+                                toast({
+                                  title: "Publishing Failed",
+                                  description: error instanceof Error ? error.message : "Failed to publish relay list",
+                                  variant: "destructive"
+                                });
+                              }
                             }}
+                            disabled={publishGeneralRelayList.isPending}
                           >
-                            Publish List
+                            {publishGeneralRelayList.isPending ? 'Publishing...' : 'Publish List'}
                           </Button>
                         </div>
                       </div>
@@ -888,6 +937,12 @@ export default function Settings() {
                               <div className="flex items-center gap-2">
                                 <Shield className="h-4 w-4 text-green-500" />
                                 <span className="font-medium">{pref.url}</span>
+                                {isAuthEnabledRelay(pref.url) && (
+                                  <Badge variant="default" className="text-xs bg-purple-600">
+                                    <Lock className="h-3 w-3 mr-1" />
+                                    AUTH
+                                  </Badge>
+                                )}
                               </div>
                               <div className="flex items-center gap-2">
                                 <Badge variant="outline" className="text-xs">
@@ -960,17 +1015,23 @@ export default function Settings() {
                         {/* Quick Add Private Presets */}
                         <div>
                           <h5 className="font-medium mb-2">Quick Add Secure Relays</h5>
+                          <Alert className="mb-3">
+                            <Lock className="h-4 w-4" />
+                            <AlertDescription>
+                              <strong>AUTH-enabled relays</strong> provide enhanced privacy for gift-wrapped events (NIP-59). 
+                              They only serve private events to authenticated recipients, preventing metadata leaks.
+                            </AlertDescription>
+                          </Alert>
                           <div className="flex flex-wrap gap-2">
                             {[
-                              { name: 'Primal', url: 'wss://relay.primal.net' },
-                              { name: 'Damus', url: 'wss://relay.damus.io' },
-                              { name: 'Nos.lol', url: 'wss://nos.lol' },
-                              { name: 'Snort', url: 'wss://relay.snort.social' },
-                              { name: 'Nostr.Wine', url: 'wss://nostr.wine' }
+                              { name: 'NostrCal', url: 'wss://relay.nostrcal.com', auth: true },
+                              { name: 'auth.nostr1.com', url: 'wss://auth.nostr1.com', auth: true },
+                              { name: 'inbox.nostr.wine', url: 'wss://inbox.nostr.wine', auth: true },
+                              { name: 'Nostr.Land', url: 'wss://nostr.land', auth: true }
                             ].filter(relay => !relayPreferences.some(pref => pref.url === relay.url)).map(relay => (
                               <Button
                                 key={relay.url}
-                                variant="outline"
+                                variant={relay.auth ? "default" : "outline"}
                                 size="sm"
                                 onClick={() => {
                                   const newPreferences = [...relayPreferences, {
@@ -984,9 +1045,11 @@ export default function Settings() {
                                     description: `${relay.name} has been added to your private relay preferences`,
                                   });
                                 }}
+                                className={relay.auth ? "bg-purple-600 hover:bg-purple-700" : ""}
                               >
-                                <Plus className="h-3 w-3 mr-1" />
+                                {relay.auth ? <Lock className="h-3 w-3 mr-1" /> : <Plus className="h-3 w-3 mr-1" />}
                                 {relay.name}
+                                {relay.auth && <span className="ml-1 text-xs">(AUTH)</span>}
                               </Button>
                             ))}
                           </div>

@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useNostr } from '@nostrify/react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { usePrivateCalendarEvents } from '@/hooks/usePrivateCalendarEvents';
+// NIP-65: All hooks in this file now benefit from intelligent relay routing
+// via the enhanced reqRouter in NostrProvider
 import { useRSVPReferencedEvents } from '@/hooks/useRSVPReferencedEvents';
 import { NostrEvent } from '@nostrify/nostrify';
 import { Rumor } from '@/utils/nip59';
@@ -162,15 +164,23 @@ function validateCalendarEvent(event: NostrEvent | Rumor): boolean {
 
 export function useCalendarEvents() {
   const { nostr } = useNostr();
-  const { user } = useCurrentUser();
+  const { user, isLoading: isUserLoading } = useCurrentUser();
   const { privateEvents } = usePrivateCalendarEvents();
   const [publicEvents, setPublicEvents] = useState<NostrEvent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   // Stream public calendar events in real-time
   useEffect(() => {
+    // Wait for user loading to complete (handles nsec race condition)
+    if (isUserLoading) {
+      setIsLoading(true);
+      return;
+    }
+
+    // If no user is logged in, show empty calendar
     if (!user?.pubkey || !nostr) {
       setPublicEvents([]);
+      setIsLoading(false);
       return;
     }
 
@@ -233,6 +243,16 @@ export function useCalendarEvents() {
                 
                 eventIds.add(event.id);
                 
+                // NIP-65: Proactively cache author's relay preferences for better profile discovery
+                if (event.pubkey) {
+                  // Don't await - run in background to avoid blocking event processing
+                  import('@/utils/relay-preferences').then(({ getAuthorRelayListMetadata }) => {
+                    getAuthorRelayListMetadata(event.pubkey, nostr).catch(() => {
+                      // Silently fail - this is just optimization
+                    });
+                  });
+                }
+                
                 // Add event immediately for real-time streaming
                 setPublicEvents(prev => {
                   const updated = [...prev, event];
@@ -294,7 +314,7 @@ export function useCalendarEvents() {
       isMounted = false;
       controller.abort();
     };
-  }, [user?.pubkey, nostr]);
+  }, [user?.pubkey, nostr, isUserLoading]);
 
   // Get RSVP referenced events (only pass public events since privateEvents are Rumor type)
   const { data: rsvpReferencedEvents, isLoading: isRSVPLoading } = useRSVPReferencedEvents(publicEvents);
@@ -396,6 +416,18 @@ export function usePublicCalendarEvents() {
       // Filter events through validator
       const validEvents = events.filter(validateCalendarEvent);
 
+      // NIP-65: Proactively cache author relay preferences for better profile discovery
+      validEvents.forEach(event => {
+        if (event.pubkey) {
+          // Don't await - run in background to avoid blocking
+          import('@/utils/relay-preferences').then(({ getAuthorRelayListMetadata }) => {
+            getAuthorRelayListMetadata(event.pubkey, nostr).catch(() => {
+              // Silently fail - this is just optimization
+            });
+          });
+        }
+      });
+
       // Transform events for calendar display
       return validEvents.map(transformEventForCalendar);
     },
@@ -425,6 +457,19 @@ export function usePublicCalendarEventsWithPagination() {
 
       // Filter events through validator
       const validEvents = events.filter(validateCalendarEvent);
+      
+      // NIP-65: Proactively cache author relay preferences for better profile discovery
+      validEvents.forEach(event => {
+        if (event.pubkey) {
+          // Don't await - run in background to avoid blocking
+          import('@/utils/relay-preferences').then(({ getAuthorRelayListMetadata }) => {
+            getAuthorRelayListMetadata(event.pubkey, nostr).catch(() => {
+              // Silently fail - this is just optimization
+            });
+          });
+        }
+      });
+      
       const transformed = validEvents.map(transformEventForCalendar);
       
       // Sort by date
@@ -472,6 +517,19 @@ export function usePublicCalendarEventsWithPagination() {
       ], { signal });
       
       const validEvents = events.filter(validateCalendarEvent);
+      
+      // NIP-65: Proactively cache author relay preferences for better profile discovery
+      validEvents.forEach(event => {
+        if (event.pubkey) {
+          // Don't await - run in background to avoid blocking
+          import('@/utils/relay-preferences').then(({ getAuthorRelayListMetadata }) => {
+            getAuthorRelayListMetadata(event.pubkey, nostr).catch(() => {
+              // Silently fail - this is just optimization
+            });
+          });
+        }
+      });
+      
       const transformed = validEvents.map(transformEventForCalendar);
       
       if (transformed.length === 0) {

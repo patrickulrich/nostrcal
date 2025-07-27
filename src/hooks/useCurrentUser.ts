@@ -40,9 +40,13 @@ export function useCurrentUser() {
   const user = users[0] as NUser | undefined;
   const author = useAuthor(user?.pubkey);
 
+  // Simple loading state: we're loading if we have logins but no user with signer yet
+  const isLoading = (logins.length > 0 && !user?.signer) || author.isLoading;
+
   return {
     user,
     users,
     ...author.data,
+    isLoading,
   };
 }

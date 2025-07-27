@@ -242,6 +242,7 @@ export async function createGiftWrapsForRecipients(
  * Publish gift wraps to participants' relay preferences
  * Queries each participant's 10050 relay list and sends to their preferred relays
  * Falls back to default relays if participant has no published preferences
+ * IMPORTANT: Prioritizes AUTH-enabled relays for NIP-59 privacy compliance
  */
 export async function publishGiftWrapsToParticipants(
   giftWraps: NostrEvent[],
@@ -269,16 +270,33 @@ export async function publishGiftWrapsToParticipants(
     }
 
     try {
+      // Import AUTH checking functions
+      const { isAuthEnabledRelay } = await import('./nostr-auth');
+      
       // Get participant's relay preferences
       const participantRelays = await getParticipantRelayPreferences(recipientPubkey, nostr);
-      const writeRelays = participantRelays
-        .filter(relay => relay.write !== false)
+      
+      // NIP-59: Prioritize AUTH-enabled relays for privacy
+      // First, try to find AUTH-enabled relays from participant's preferences
+      const authEnabledRelays = participantRelays
+        .filter(relay => relay.write !== false && isAuthEnabledRelay(relay.url))
         .map(relay => relay.url);
+      
+      // If no AUTH-enabled relays, fall back to regular write relays (with warning)
+      const writeRelays = authEnabledRelays.length > 0 
+        ? authEnabledRelays 
+        : participantRelays
+            .filter(relay => relay.write !== false)
+            .map(relay => relay.url);
 
       if (writeRelays.length === 0) {
         console.warn(`⚠️ [publishGiftWrapsToParticipants] No write relays found for ${recipientPubkey.substring(0, 8)}`);
         failCount++;
         continue;
+      }
+      
+      if (authEnabledRelays.length === 0) {
+        console.warn(`⚠️ [NIP-59] Publishing gift wrap without AUTH relay protection for ${recipientPubkey.substring(0, 8)} - metadata may leak!`);
       }
 
       // Publish to each of the participant's relays

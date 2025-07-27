@@ -6,8 +6,9 @@ A decentralized calendar application built on the Nostr protocol, implementing N
 
 - **Decentralized Calendar Events**: Create and manage calendar events using NIP-52 specification
 - **Private Events**: End-to-end encrypted events using NIP-44 encryption and NIP-59 gift wraps
-- **Booking System**: Calendar availability templates (kind 31926) with real-time slot booking
+- **Booking System**: Calendar availability templates (kind 31926) with real-time slot booking and Lightning payments
 - **Multi-Relay Support**: General relays for public events, private relays for encrypted content
+- **Intelligent Relay Routing**: Full NIP-65 (Relay List Metadata) support for optimal event discovery
 - **Profile Management**: Edit your Nostr profile with NIP-05 verification and Lightning addresses
 - **File Uploads**: Image and file uploads via Blossom servers (BUD-03)
 - **Authentication**: NIP-42 relay authentication for enhanced features
@@ -91,10 +92,24 @@ Private events use NIP-59 encryption:
 
 ### Relay Configuration
 
-Two types of relays are supported:
+NostrCal implements advanced relay management with NIP-65 support:
 
 - **General relays**: Public events, profiles, discovery (kind 10002)
+  - Read/write permissions per relay
+  - Automatic propagation of relay preferences
+  - Header-added relays default to read-only
 - **Private relays**: Encrypted events with authentication (kind 10050)
+  - AUTH-enabled relay prioritization for NIP-59 privacy
+  - Visual indicators for AUTH-supported relays
+  - Recommended: relay.nostrcal.com, auth.nostr1.com, inbox.nostr.wine
+
+#### NIP-65 Intelligent Routing
+
+NostrCal uses the Outbox Model for optimal event discovery:
+- **Queries**: Automatically routes to authors' write relays
+- **Publishing**: Sends events to mentioned users' read relays
+- **Profile Discovery**: Caches author relay preferences for better metadata loading
+- **Performance**: 5-minute relay cache prevents redundant lookups
 
 ## Usage
 
@@ -117,12 +132,83 @@ Two types of relays are supported:
 
 Booking links are generated as `nostr:naddr1...` identifiers that work across all Nostr clients for maximum interoperability.
 
+### Lightning Payments (NIP-57)
+
+NostrCal supports Lightning payments for paid booking appointments:
+
+#### Paid Availability Templates
+
+1. **Creating Paid Templates**: Set an amount in sats when creating availability templates
+2. **Payment Verification**: Users must complete Lightning payment before booking
+3. **Zap Integration**: Uses proper NIP-57 zap requests for Bitcoin payments
+4. **Receipt Validation**: Verifies zap receipts before granting booking access
+
+#### Payment Flow
+
+1. User selects a paid availability slot
+2. Lightning payment component generates real invoice via LNURL
+3. User pays with any Lightning wallet
+4. Payment is verified through zap receipts (kind 9735)
+5. Booking proceeds only after successful payment
+
+#### LNURL Support
+
+- **Lightning Addresses**: Supports modern user@domain.com format (LUD-16)
+- **LNURL**: Traditional bech32 LNURL format (LUD-06)  
+- **Real Invoices**: Generates actual bolt11 invoices via recipient's Lightning service
+- **Error Handling**: Clear feedback for payment failures and missing LNURL setup
+
+#### Booking Tracking
+
+The `/booking` page provides comprehensive payment tracking:
+
+- **Pending**: Booking requests awaiting organizer response
+- **Pending Payment**: Requests requiring payment but not yet paid
+- **Approved**: Successfully confirmed bookings
+- **Declined**: Rejected booking requests
+
+Recipients need Lightning Address or LNURL in their Nostr profile (`lud16` or `lud06` fields) to receive payments.
+
+### Comments and Reactions
+
+NostrCal includes a comprehensive comment system for calendar events with full NIP-25 reaction support:
+
+#### Commenting on Events
+
+1. **View Comments**: Comments appear on event detail pages and modals
+2. **Add Comments**: Click "Add Comment" to share thoughts about events
+3. **Threaded Replies**: Reply to specific comments to create discussion threads
+4. **Manage Comments**: Comment authors can delete their own comments via hamburger menu
+
+#### Reactions (NIP-25)
+
+1. **Quick Like**: Click the thumbs up button for instant likes
+2. **Emoji Reactions**: Use the + button to pick from 10 emoji options:
+   - ❤️ Love, 👍 Thumbs up, 😂 Laugh, 😢 Sad, 😮 Wow
+   - 😡 Angry, 🔥 Fire, 🎉 Celebrate, 👎 Dislike
+3. **Toggle Reactions**: Click the same reaction again to remove it
+4. **Reaction Summary**: See counts and types of all reactions on comments
+
+#### Features
+
+- **Real-time Updates**: Comments and reactions update immediately
+- **Threaded Discussions**: Nested replies up to 3 levels deep
+- **Ownership Control**: Only authors can delete their own comments
+- **Login Required**: Reactions and commenting require Nostr authentication
+- **Cross-Client**: Comments and reactions work across all Nostr clients
+
 ### Setting Up Relays
 
 1. Go to Settings → Relays
 2. Configure general relays for public content
+   - Set read/write permissions per relay
+   - Keep 2-4 read and 2-4 write relays for optimal performance
 3. Set up private relays for encrypted events
+   - Prioritize AUTH-enabled relays (purple badges)
+   - Use suggested AUTH relays for maximum privacy
 4. Publish relay preferences to Nostr (recommended)
+   - Publishes kind 10002 (general) and kind 10050 (private)
+   - Enables other clients to find you efficiently
 
 ## File Structure
 
@@ -142,7 +228,10 @@ src/
 ## Key Components
 
 - **Calendar Events**: Full CRUD operations for calendar events
-- **Booking System**: Availability templates and slot booking
+- **Booking System**: Availability templates and slot booking with Lightning payments
+- **Lightning Payments**: NIP-57 zap integration with LNURL workflow and payment verification
+- **Comment System**: NIP-22 threaded comments with edit/delete functionality and NIP-25 reactions
+- **Reactions**: Like, emoji, and custom reactions on comments using NIP-25
 - **Private Events**: NIP-59 encryption/decryption
 - **Profile Management**: NIP-05 verification and metadata
 - **File Uploads**: Blossom server integration
@@ -183,12 +272,14 @@ The app uses local storage for configuration:
 - **NIP-10**: Text notes and threads  
 - **NIP-19**: bech32-encoded entities (npub, note, naddr, nevent, nprofile)
 - **NIP-21**: nostr: URI scheme for interoperability
-- **NIP-22**: Comment system
+- **NIP-22**: Comment system (with threaded replies, edit/delete functionality)
+- **NIP-25**: Reactions (likes, emojis on comments and content)
 - **NIP-42**: Relay authentication
 - **NIP-44**: Encryption/decryption
 - **NIP-52**: Calendar events
-- **NIP-57**: Lightning payments
-- **NIP-59**: Gift wraps and seals
+- **NIP-57**: Lightning zaps (full LNURL workflow, payment verification, paid bookings)
+- **NIP-59**: Gift wraps and seals (with AUTH relay prioritization)
+- **NIP-65**: Relay List Metadata (Outbox Model)
 - **NIP-94**: File metadata
 - **BUD-03**: Blossom file storage
 

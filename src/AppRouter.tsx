@@ -8,7 +8,6 @@ import NotFound from "./pages/NotFound";
 import CalendarPage from "./pages/CalendarPage";
 import NewEvent from "./pages/NewEvent";
 import Booking from "./pages/Booking";
-import Bookings from "./pages/Bookings";
 import Events from "./pages/Events";
 import EventSlots from "./pages/EventSlots";
 import Settings from "./pages/Settings";
@@ -33,7 +32,6 @@ export function AppRouter() {
             <Route path="/new-event" element={<NewEvent />} />
             <Route path="/booking" element={<Booking />} />
             <Route path="/booking/:naddr" element={<Booking />} />
-            <Route path="/bookings" element={<Bookings />} />
             <Route path="/events" element={<Events />} />
             <Route path="/events/:naddr" element={<CalendarEventPage />} />
             <Route path="/event-slots" element={<EventSlots />} />

@@ -140,15 +140,22 @@ export default function EventSlots() {
           availability[day].push({ start, end });
         });
 
-        // Helper function to parse ISO-8601 duration to minutes
+        // Helper function to parse ISO-8601 duration/period to minutes
         const parseDuration = (durationStr: string): number => {
           if (!durationStr) return 30; // default
           
-          // Handle both ISO-8601 format (PT30M) and legacy numeric format (30)
-          if (durationStr.startsWith('PT') && durationStr.endsWith('M')) {
+          // Handle ISO-8601 period format for days (P30D) - used by min_notice and max_advance
+          if (durationStr.startsWith('P') && durationStr.endsWith('D')) {
+            const days = parseInt(durationStr.slice(1, -1));
+            return isNaN(days) ? 30 : days * 1440; // Convert days to minutes
+          }
+          // Handle ISO-8601 duration format for minutes (PT30M) - used by duration, interval, buffers
+          else if (durationStr.startsWith('PT') && durationStr.endsWith('M')) {
             const minutes = parseInt(durationStr.slice(2, -1));
             return isNaN(minutes) ? 30 : minutes;
-          } else {
+          } 
+          // Handle legacy numeric format (30)
+          else {
             const minutes = parseInt(durationStr);
             return isNaN(minutes) ? 30 : minutes;
           }
@@ -283,9 +290,14 @@ export default function EventSlots() {
       loadTemplates();
     } catch (err) {
       console.error('Failed to save template:', err);
+      
+      // Check if this is a Lightning setup error
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save template';
+      const isLightningError = errorMessage.includes('Lightning payment setup required');
+      
       toast({
-        title: "Error",
-        description: "Failed to save template",
+        title: isLightningError ? "Lightning Setup Required" : "Error",
+        description: isLightningError ? errorMessage : "Failed to save template",
         variant: "destructive"
       });
     }
@@ -668,7 +680,11 @@ export default function EventSlots() {
                   min="0"
                   value={formData.amount}
                   onChange={(e) => setFormData(prev => ({ ...prev, amount: parseInt(e.target.value) || 0 }))}
+                  placeholder="0 for free, > 0 for paid"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Paid templates require Lightning Address (lud16) or LNURL (lud06) in your profile
+                </p>
               </div>
               
               <div className="space-y-2 flex items-center">

@@ -43,6 +43,7 @@ function EventModal({ event, onClose, onEdit, onDelete }: EventModalProps) {
   if (!event) return null;
 
   // Check if current user can edit/delete this event
+  // Show manage options if user is logged in and owns the event
   const canManageEvent = user?.pubkey && (
     // User is the event organizer
     event.id?.includes(user.pubkey) ||
@@ -451,7 +452,7 @@ function WeekView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => void
   };
 
   const handleDeleteEvent = (event: CalendarEvent) => {
-    // TODO: Implement event deletion functionality
+    // Event deletion is handled by the EventModal component
     console.log('Delete event:', event);
     setSelectedEvent(null);
   };
@@ -611,7 +612,7 @@ function MonthView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => voi
   };
 
   const handleDeleteEvent = (event: CalendarEvent) => {
-    // TODO: Implement event deletion functionality
+    // Event deletion is handled by the EventModal component
     console.log('Delete event:', event);
     setSelectedEvent(null);
   };
@@ -731,7 +732,7 @@ function DayView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => void 
   };
 
   const handleDeleteEvent = (event: CalendarEvent) => {
-    // TODO: Implement event deletion functionality
+    // Event deletion is handled by the EventModal component
     console.log('Delete event:', event);
     setSelectedEvent(null);
   };

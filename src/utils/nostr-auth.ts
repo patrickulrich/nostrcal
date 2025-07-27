@@ -59,3 +59,37 @@ export function mightRequireAuth(url: string): boolean {
   
   return authPatterns.some(pattern => pattern.test(url));
 }
+
+/**
+ * Known AUTH-enabled relays for NIP-59 gift wrap privacy
+ * These relays are known to implement NIP-42 AUTH and only serve
+ * kind 1059 events to authenticated recipients
+ */
+export const AUTH_ENABLED_RELAYS = [
+  'wss://relay.nostrcal.com',
+  'wss://auth.nostr1.com',
+  'wss://inbox.nostr.wine',
+  'wss://nostr.land',
+  'wss://relay.nostrdice.com',
+  'wss://private.red.gb.net',
+  'wss://nostr.wine',
+  'wss://filter.nostr.wine',
+  'wss://relay.orangepill.dev',
+  'wss://relay.nostrati.com'
+];
+
+/**
+ * Check if a relay is known to support AUTH for kind 1059 privacy
+ * @param url - Relay URL to check
+ * @returns boolean indicating if relay supports AUTH
+ */
+export function isAuthEnabledRelay(url: string): boolean {
+  const normalizedUrl = normalizeRelayUrl(url).toLowerCase();
+  return AUTH_ENABLED_RELAYS.some(authRelay => 
+    normalizedUrl === authRelay.toLowerCase() ||
+    normalizedUrl.includes('auth') ||
+    normalizedUrl.includes('private') ||
+    normalizedUrl.includes('inbox') ||
+    normalizedUrl.includes('nsec')
+  );
+}
