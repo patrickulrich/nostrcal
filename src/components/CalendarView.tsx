@@ -321,6 +321,15 @@ function WeekView() {
                           zIndex: 3
                         }}
                         onClick={() => setSelectedEvent(event)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setSelectedEvent(event);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`View event: ${event.title || 'Untitled Event'}`}
                       >
                         <div className="font-medium truncate">
                           {event.title || 'Untitled Event'}
@@ -448,6 +457,15 @@ function MonthView() {
                       color: 'white'
                     }}
                     onClick={() => setSelectedEvent(event)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedEvent(event);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`View event: ${event.title || 'Untitled Event'}`}
                   >
                     {event.title || 'Untitled Event'}
                   </div>
@@ -597,6 +615,15 @@ function DayView() {
                     zIndex: 3
                   }}
                   onClick={() => setSelectedEvent(event)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedEvent(event);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`View event: ${event.title || 'Untitled Event'}`}
                 >
                   <div className="font-medium truncate">
                     {event.title || 'Untitled Event'}

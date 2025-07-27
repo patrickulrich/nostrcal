@@ -562,6 +562,15 @@ function WeekView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => void
                           borderBottomRightRadius: spanInfo.continues ? '0' : '4px',
                         }}
                         onClick={() => setSelectedEvent(event)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setSelectedEvent(event);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`View event: ${event.title || 'Untitled Event'}`}
                       >
                         <div className="font-medium truncate">
                           {spanInfo.continuedFrom && '← '}
@@ -693,6 +702,15 @@ function MonthView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => voi
                         paddingRight: spanInfo.continues ? '12px' : '4px',
                       }}
                       onClick={() => setSelectedEvent(event)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setSelectedEvent(event);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`View event: ${event.title || 'Untitled Event'}`}
                     >
                       {spanInfo.continuedFrom && '← '}
                       {event.kind === 31925 ? '✓ ' : ''}{event.title || 'Untitled Event'}
@@ -814,6 +832,15 @@ function DayView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => void 
                     borderRightStyle: spanInfo.continues ? 'none' : 'solid',
                   }}
                   onClick={() => setSelectedEvent(event)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedEvent(event);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`View event: ${event.title || 'Untitled Event'}`}
                 >
                   <div className="font-medium truncate">
                     {spanInfo.continuedFrom && '← '}
