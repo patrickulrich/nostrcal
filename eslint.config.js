@@ -2,6 +2,7 @@ import js from "@eslint/js";
 import globals from "globals";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
+import jsxA11y from "eslint-plugin-jsx-a11y";
 import tseslint from "typescript-eslint";
 import htmlEslint from "@html-eslint/eslint-plugin";
 import htmlParser from "@html-eslint/parser";
@@ -23,10 +24,20 @@ export default tseslint.config(
     plugins: {
       "react-hooks": reactHooks,
       "react-refresh": reactRefresh,
+      "jsx-a11y": jsxA11y,
       "custom": customRules,
+      "react-internal": {
+        rules: {
+          "safe-string-coercion": {
+            meta: { type: "problem" },
+            create() { return {}; }
+          }
+        }
+      }
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      ...jsxA11y.configs.recommended.rules,
       "react-refresh/only-export-components": [
         "warn",
         { allowConstantExport: true },
@@ -45,6 +56,9 @@ export default tseslint.config(
         { terms: ["fixme"] },
       ],
       "@typescript-eslint/no-explicit-any": "off",
+      "react-internal/safe-string-coercion": "off",
+      "jsx-a11y/anchor-has-content": "warn",
+      "react-hooks/rules-of-hooks": "error",
     },
   },
   {
