@@ -7,11 +7,12 @@ import { useDeleteCalendarEvent } from '@/hooks/useCalendarPublish';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, Clock, MapPin, Lock, MoreVertical, Edit, Trash2 } from 'lucide-react';
+import { Calendar, Clock, MapPin, Lock, MoreVertical, Edit, Trash2, Bell } from 'lucide-react';
 import ParticipantsList from '@/components/ParticipantsList';
 import { EditEventModal } from './EditEventModal';
 import { CalendarEvent } from '@/contexts/EventsContextTypes';
 import { formatHour, formatDateTime } from '@/utils/timeFormat';
+import { EventNotificationToggle } from '@/components/EventNotificationToggle';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -228,6 +229,37 @@ function EventModal({ event, onClose, onEdit, onDelete }: EventModalProps) {
                 Private
               </Badge>
             )}
+          </div>
+
+          {/* Notification Settings */}
+          {user && (event.kind === 31922 || event.kind === 31923 || event.kind === 31925) && (
+            <div className="pt-4 border-t">
+              <div className="flex items-center gap-2 mb-3">
+                <Bell className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Set Reminder</span>
+              </div>
+              <EventNotificationToggle event={event} variant="inline" />
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex gap-2 pt-4 border-t">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => window.open(`/calendar/${event.id}`, '_blank')}
+              className="flex-1"
+            >
+              View Details
+            </Button>
+            <Button 
+              variant="default" 
+              size="sm" 
+              onClick={onClose}
+              className="flex-1"
+            >
+              Close
+            </Button>
           </div>
         </CardContent>
       </Card>

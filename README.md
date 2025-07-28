@@ -1,29 +1,62 @@
 # NostrCal
 
-A decentralized calendar application built on the Nostr protocol, implementing NIP-52 calendar events with private event support and booking functionality.
+A decentralized Progressive Web App (PWA) calendar built on the Nostr protocol, implementing NIP-52 calendar events with private event support, booking functionality, and offline-capable background notifications.
 
 ## Features
 
+### Core Calendar Features
 - **Decentralized Calendar Events**: Create and manage calendar events using NIP-52 specification
 - **Private Events**: End-to-end encrypted events using NIP-44 encryption and NIP-59 gift wraps
 - **Booking System**: Calendar availability templates (kind 31926) with real-time slot booking and Lightning payments
 - **Multi-Relay Support**: General relays for public events, private relays for encrypted content
 - **Intelligent Relay Routing**: Full NIP-65 (Relay List Metadata) support for optimal event discovery
+
+### PWA Capabilities
+- **Offline Functionality**: Full calendar access without internet connection
+- **Background Notifications**: Event reminders even when app is closed
+- **Installable**: Add to home screen on mobile and desktop
+- **Push Notifications**: Real-time event reminders via service workers
+- **Data Persistence**: Notification preferences and cached data stored locally
+
+### User Experience
 - **Profile Management**: Edit your Nostr profile with NIP-05 verification and Lightning addresses
 - **File Uploads**: Image and file uploads via Blossom servers (BUD-03)
 - **Authentication**: NIP-42 relay authentication for enhanced features
 - **Theme Support**: Light/dark mode with system preference detection
+- **Real-time Updates**: Live calendar updates across all connected devices
 
 ## Technology Stack
 
+### Core Framework
 - **React 18** with TypeScript for type-safe development
 - **Vite** for fast development and building
 - **TailwindCSS** for utility-first styling
 - **shadcn/ui** for accessible, unstyled components
-- **Nostrify** for Nostr protocol integration
-- **TanStack Query** for data fetching and caching
+
+### Progressive Web App (PWA)
+- **Service Workers** with Workbox for offline functionality
+- **IndexedDB** for client-side data persistence
+- **Background Notifications** for event reminders
+- **vite-plugin-pwa** for PWA manifest and service worker generation
+- **Cache-first strategies** for images and static assets
+
+### Nostr Integration
+- **Nostrify** for Nostr protocol implementation
+- **NIP-65 Outbox Model** for intelligent relay routing
+- **NIP-59 Gift Wraps** for private event encryption
+- **NIP-42 AUTH** for relay authentication
+
+### Data Management
+- **TanStack Query** for server state management and caching
+- **React Context** for global state management
 - **React Router** for client-side routing
-- **date-fns** for date manipulation
+- **date-fns** for date manipulation and formatting
+
+### Development & Testing
+- **Vitest** for unit testing
+- **ESLint** with React rules for code quality
+- **TypeScript** strict mode for type safety
+- **Testing Library** for component testing
 
 ## Getting Started
 
@@ -58,7 +91,10 @@ A decentralized calendar application built on the Nostr protocol, implementing N
 npm run build
 ```
 
-The built files will be in the `dist/` directory.
+The built files will be in the `dist/` directory, including:
+- PWA manifest and service worker
+- Pre-cached static assets for offline use
+- Optimized bundles with code splitting
 
 ### Running Tests
 
@@ -227,24 +263,43 @@ src/
 
 ## Key Components
 
+### Calendar & Events
 - **Calendar Events**: Full CRUD operations for calendar events
+- **Private Events**: NIP-59 encryption/decryption with gift-wrap handling
 - **Booking System**: Availability templates and slot booking with Lightning payments
 - **Lightning Payments**: NIP-57 zap integration with LNURL workflow and payment verification
+
+### PWA & Notifications
+- **Service Worker**: Background processing and offline functionality
+- **Notification System**: Event reminders with customizable timing
+- **IndexedDB Storage**: Client-side persistence for preferences and cached data
+- **Background Sync**: Offline-first data synchronization
+
+### Social Features  
 - **Comment System**: NIP-22 threaded comments with edit/delete functionality and NIP-25 reactions
 - **Reactions**: Like, emoji, and custom reactions on comments using NIP-25
-- **Private Events**: NIP-59 encryption/decryption
 - **Profile Management**: NIP-05 verification and metadata
+
+### Infrastructure
 - **File Uploads**: Blossom server integration
-- **Relay Management**: Multi-relay configuration
+- **Relay Management**: Multi-relay configuration with NIP-65 intelligent routing
+- **Authentication**: NIP-42 relay authentication
 
 ## Configuration
 
-The app uses local storage for configuration:
+The app uses multiple storage mechanisms:
 
+### LocalStorage
 - Theme preferences (light/dark/system)
 - Relay URLs and authentication settings
 - Blossom server URLs for file uploads
 - UI preferences
+
+### IndexedDB (PWA)
+- Notification preferences and schedules
+- Cached calendar events for offline access
+- Service worker configuration
+- Background sync queue
 
 ## Contributing
 

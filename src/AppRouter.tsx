@@ -29,6 +29,7 @@ export function AppRouter() {
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/calendar" element={<CalendarPage />} />
+            <Route path="/calendar/:eventId" element={<CalendarEventPage />} />
             <Route path="/new-event" element={<NewEvent />} />
             <Route path="/booking" element={<Booking />} />
             <Route path="/booking/:naddr" element={<Booking />} />

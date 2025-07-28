@@ -50,7 +50,6 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
               if (!authEvent) {
                 throw new Error('Authentication failed: no auth event returned');
               }
-              console.log('✅ [Auth] Authenticated successfully for relay:', url);
               return authEvent;
             } catch (error) {
               console.error('❌ [Auth] Session authentication failed:', error);

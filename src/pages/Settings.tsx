@@ -46,6 +46,8 @@ import { useBlossomServers } from '@/hooks/useBlossomServers';
 import { useGeneralRelayList, usePublishGeneralRelayList } from '@/hooks/useGeneralRelayList';
 import { useGeneralRelayConfig } from '@/hooks/useGeneralRelayConfig';
 import { PrivateEventDebug } from '@/components/PrivateEventDebug';
+import { NotificationSettings } from '@/components/NotificationSettings';
+import { useNotificationContext } from '@/hooks/useNotificationContext';
 import { isAuthEnabledRelay } from '@/utils/nostr-auth';
 
 export default function Settings() {
@@ -55,6 +57,10 @@ export default function Settings() {
   const { config, updateConfig, presetRelays } = useAppContext();
   const { is24HourFormat, setTimeFormat } = useCalendar();
   const { toast } = useToast();
+  const { preferences: notificationPreferences, permissionStatus } = useNotificationContext();
+  
+  // Check if notifications are effectively enabled (permission granted AND enabled in preferences)
+  const notificationsEnabled = permissionStatus === 'granted' && notificationPreferences.enabled;
   const {
     publishedServers,
     isLoadingPublished: _isLoadingPublished,
@@ -84,7 +90,7 @@ export default function Settings() {
     toggleRelayPermission 
   } = useGeneralRelayConfig();
   
-  const [activeTab, setActiveTab] = useState<'general' | 'relays' | 'profile' | 'debug'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'notifications' | 'relays' | 'profile' | 'debug'>('general');
   const [newRelay, setNewRelay] = useState('');
   const [newPrivateRelay, setNewPrivateRelay] = useState('');
   const [testingRelay, setTestingRelay] = useState<string | null>(null);
@@ -369,9 +375,10 @@ export default function Settings() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'general' | 'relays' | 'profile' | 'debug')}>
-            <TabsList className="grid w-full grid-cols-4">
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'general' | 'notifications' | 'relays' | 'profile' | 'debug')}>
+            <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="general">General</TabsTrigger>
+              <TabsTrigger value="notifications">Notifications</TabsTrigger>
               <TabsTrigger value="relays">Relays</TabsTrigger>
               <TabsTrigger value="profile">Profile</TabsTrigger>
               <TabsTrigger value="debug">Debug</TabsTrigger>
@@ -456,14 +463,37 @@ export default function Settings() {
                   <Label>Notifications</Label>
                   <div className="space-y-2">
                     <div className="flex items-center space-x-2">
-                      <Switch id="booking-notifications" defaultChecked />
-                      <Label htmlFor="booking-notifications">Booking notifications</Label>
+                      <Switch 
+                        id="booking-notifications" 
+                        defaultChecked 
+                        disabled={!notificationsEnabled}
+                      />
+                      <Label 
+                        htmlFor="booking-notifications"
+                        className={!notificationsEnabled ? 'text-muted-foreground' : ''}
+                      >
+                        Booking notifications
+                      </Label>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Switch id="event-reminders" defaultChecked />
-                      <Label htmlFor="event-reminders">Event reminders</Label>
+                      <Switch 
+                        id="event-reminders" 
+                        defaultChecked 
+                        disabled={!notificationsEnabled}
+                      />
+                      <Label 
+                        htmlFor="event-reminders"
+                        className={!notificationsEnabled ? 'text-muted-foreground' : ''}
+                      >
+                        Event reminders
+                      </Label>
                     </div>
                   </div>
+                  {!notificationsEnabled && (
+                    <p className="text-xs text-muted-foreground">
+                      Enable notifications in the Notifications tab to configure these settings.
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -603,6 +633,10 @@ export default function Settings() {
                   </Alert>
                 </div>
               </div>
+            </TabsContent>
+
+            <TabsContent value="notifications" className="space-y-6">
+              <NotificationSettings />
             </TabsContent>
 
             <TabsContent value="relays" className="space-y-6">

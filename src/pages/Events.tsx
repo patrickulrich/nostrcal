@@ -43,32 +43,11 @@ import { useAuthor } from '@/hooks/useAuthor';
 import { useCreateRSVP, useRSVPStatus, RSVPStatus } from '@/hooks/useRSVP';
 import { CommentsSection } from '@/components/comments/CommentsSection';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
-import { nip19 } from 'nostr-tools';
 import { Link } from 'react-router-dom';
 import { EventRSVPCount } from '@/components/EventRSVPCount';
 import { InlineEventRSVPCount } from '@/components/InlineEventRSVPCount';
-
-interface CalendarEvent {
-  id: string;
-  kind: number;
-  pubkey: string;
-  created_at: number;
-  tags: string[][];
-  content: string;
-  sig: string;
-  
-  // Parsed calendar data
-  dTag?: string;
-  title?: string;
-  start?: string;
-  end?: string;
-  location?: string;
-  description?: string;
-  timezone?: string;
-  participants?: string[];
-  image?: string;
-  hashtags?: string[];
-}
+import { CalendarEvent } from '@/contexts/EventsContextTypes';
+import { generateEventNaddr } from '@/utils/event-utils';
 
 interface EventCardProps {
   event: CalendarEvent;
@@ -204,22 +183,6 @@ function EventCard({ event, onClick, isOnlineLocation }: EventCardProps) {
   );
 }
 
-// Generate naddr URL for a calendar event
-function generateEventNaddr(event: CalendarEvent): string | null {
-  if (!event.dTag || !event.pubkey) return null;
-  
-  try {
-    const naddr = nip19.naddrEncode({
-      identifier: event.dTag,
-      pubkey: event.pubkey,
-      kind: event.kind,
-    });
-    return `/events/${naddr}`;
-  } catch (error) {
-    console.error('Failed to generate naddr:', error);
-    return null;
-  }
-}
 
 // Fix leaflet icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -891,7 +854,7 @@ export default function Events() {
                     {/* Comments Section */}
                     <div className="pt-4 border-t">
                       <CommentsSection 
-                        root={selectedEvent}
+                        root={selectedEvent.rawEvent || selectedEvent as any}
                         title="Discussion"
                         emptyStateMessage="No comments yet"
                         emptyStateSubtitle="Start the conversation about this event!"

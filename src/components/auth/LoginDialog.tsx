@@ -2,7 +2,7 @@
 // It is important that all functionality in this file is preserved, and should only be modified if explicitly requested.
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Shield, Upload, AlertTriangle, UserPlus, KeyRound, Sparkles, Cloud } from 'lucide-react';
+import { Shield, Upload, AlertTriangle, UserPlus, KeyRound, Sparkles, Cloud, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useLoginActions } from '@/hooks/useLoginActions';
 import { cn } from '@/lib/utils';
+import { mightHaveAmberSigner } from '@/utils/amber-nip55';
 
 interface LoginDialogProps {
   isOpen: boolean;
@@ -63,6 +64,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin, onS
     bunker?: string;
     file?: string;
     extension?: string;
+    amber?: string;
   }>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const login = useLoginActions();
@@ -102,6 +104,26 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin, onS
       setErrors(prev => ({
         ...prev,
         extension: error instanceof Error ? error.message : 'Extension login failed'
+      }));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAmberLogin = async () => {
+    setIsLoading(true);
+    setErrors(prev => ({ ...prev, amber: undefined }));
+
+    try {
+      await login.amber();
+      onLogin();
+      onClose();
+    } catch (e: unknown) {
+      const error = e as Error;
+      console.error('Amber login failed:', error);
+      setErrors(prev => ({
+        ...prev,
+        amber: error instanceof Error ? error.message : 'Amber login failed'
       }));
     } finally {
       setIsLoading(false);
@@ -243,6 +265,27 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin, onS
               </Button>
             </div>
           </div>
+
+          {/* Amber Login for Android */}
+          {mightHaveAmberSigner() && (
+            <div className='space-y-2'>
+              {errors.amber && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>{errors.amber}</AlertDescription>
+                </Alert>
+              )}
+              <Button
+                onClick={handleAmberLogin}
+                disabled={isLoading}
+                variant="outline"
+                className='w-full rounded-full py-3 text-base font-medium bg-gradient-to-r from-green-50 to-emerald-50 hover:from-green-100 hover:to-emerald-100 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300 hover:text-green-800 dark:hover:text-green-200'
+              >
+                <Smartphone className='w-4 h-4 mr-2' />
+                <span>{isLoading ? 'Opening Amber...' : 'Sign in with Amber'}</span>
+              </Button>
+            </div>
+          )}
 
           {/* Divider */}
           <div className='relative'>

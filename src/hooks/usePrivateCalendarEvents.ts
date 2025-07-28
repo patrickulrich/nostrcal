@@ -76,12 +76,7 @@ export function usePrivateCalendarEvents() {
 
         // Use memoized read relays from user's 10050 preferences
 
-        console.log('[PrivateEvents] Starting subscription for user:', {
-          pubkey: user.pubkey,
-          signerType: user.signer?.constructor?.name,
-          relaysCount: readRelays.length,
-          filter
-        });
+        // Start private events subscription
 
         const subscription = nostr.req([filter], { 
           signal: controller.signal,
@@ -92,14 +87,6 @@ export function usePrivateCalendarEvents() {
         const processedIds = new Set<string>();
         let _eventCount = 0;
         let decryptedCount = 0;
-
-
-        // Set a timeout to clear loading state if no events arrive
-        setTimeout(() => {
-          if (isMounted) {
-            setIsProcessing(false);
-          }
-        }, 2000); // 2 second timeout - faster initial load
 
         // ✅ CORRECT: Handle relay messages properly
         for await (const msg of subscription) {
@@ -113,12 +100,7 @@ export function usePrivateCalendarEvents() {
             const event = msg[2]; // ✅ Extract actual event from msg[2]
             _eventCount++;
             
-            console.log('[PrivateEvents] Received event:', {
-              eventId: event.id,
-              kind: event.kind,
-              isGiftWrap: isGiftWrap(event),
-              userType: user.signer?.constructor?.name
-            });
+            // Process received event
             
             if (!isGiftWrap(event)) {
               continue;
@@ -133,29 +115,13 @@ export function usePrivateCalendarEvents() {
             // Process decryption asynchronously to not block the stream
             (async () => {
               try {
-                console.log('[PrivateEvents] Attempting to decrypt event:', { 
-                  eventId: event.id, 
-                  signerType: user.signer?.constructor?.name,
-                  timestamp: Date.now()
-                });
+                // Attempt to decrypt event
                 
                 const rumor = await unwrapPrivateEventWithSigner(event, user.signer!);
                 
-                console.log('[PrivateEvents] Decryption result:', { 
-                  eventId: event.id, 
-                  success: !!rumor, 
-                  isCalendarRumor: rumor ? isCalendarRumor(rumor) : false,
-                  timestamp: Date.now()
-                });
-                
                 if (rumor && rumor.id && isCalendarRumor(rumor) && isMounted) {
                   decryptedCount++;
-                  console.log('[PrivateEvents] Adding decrypted calendar event:', { 
-                    rumorId: rumor.id, 
-                    kind: rumor.kind, 
-                    decryptedCount,
-                    timestamp: Date.now()
-                  });
+                  // Add decrypted calendar event
                   
                   // Add the decrypted event immediately for real-time streaming
                   setPrivateEvents(prev => {
@@ -181,18 +147,14 @@ export function usePrivateCalendarEvents() {
             })();
             
           } else if (msg[0] === 'EOSE') {
-            console.log('[PrivateEvents] EOSE received:', {
-              userType: user.signer?.constructor?.name,
-              eventCount: _eventCount,
-              decryptedCount
-            });
-            if (isMounted) {
-              setIsProcessing(false); // Always clear loading on EOSE, even if no events decrypted
-            }
+            // End of stored events - give a brief moment for any pending decryptions
+            setTimeout(() => {
+              if (isMounted) {
+                setIsProcessing(false);
+              }
+            }, 500); // Brief delay to allow pending decryptions to complete
           } else if (msg[0] === 'CLOSED') {
-            console.log('[PrivateEvents] Subscription closed:', {
-              userType: user.signer?.constructor?.name
-            });
+            // Subscription closed
             break;
           }
         }

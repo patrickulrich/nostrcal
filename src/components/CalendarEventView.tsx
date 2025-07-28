@@ -13,6 +13,7 @@ import { useCreateRSVP, useRSVPStatus, RSVPStatus } from '@/hooks/useRSVP';
 import { CommentsSection } from '@/components/comments/CommentsSection';
 import { CalendarEvent } from '@/contexts/EventsContextTypes';
 import { EventRSVPCount } from '@/components/EventRSVPCount';
+import { EventNotificationToggle } from '@/components/EventNotificationToggle';
 
 interface CalendarEventViewProps {
   event: CalendarEvent;
@@ -217,6 +218,18 @@ export function CalendarEventView({ event }: CalendarEventViewProps) {
           </CardContent>
         </Card>
 
+        {/* Notification Settings */}
+        {user && (event.kind === 31922 || event.kind === 31923) && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Notifications</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <EventNotificationToggle event={event} variant="full" />
+            </CardContent>
+          </Card>
+        )}
+
         {/* Description */}
         {event.description && (
           <Card>
@@ -308,7 +321,7 @@ export function CalendarEventView({ event }: CalendarEventViewProps) {
           </CardHeader>
           <CardContent>
             <CommentsSection 
-              root={event}
+              root={event.rawEvent || event as any}
               title=""
               emptyStateMessage="No comments yet"
               emptyStateSubtitle="Start the conversation about this event!"

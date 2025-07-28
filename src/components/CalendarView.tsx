@@ -6,27 +6,11 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, Clock, MapPin, Users, Lock } from 'lucide-react';
+import { Calendar, Clock, MapPin, Users, Lock, Bell } from 'lucide-react';
+import { EventNotificationToggle } from '@/components/EventNotificationToggle';
+import { QuickNotificationButton } from '@/components/QuickNotificationButton';
+import { CalendarEvent } from '@/contexts/EventsContextTypes';
 
-interface CalendarEvent {
-  id: string;
-  kind: number;
-  title?: string;
-  summary?: string;
-  image?: string;
-  start?: string;
-  end?: string;
-  location?: string;
-  geohash?: string;
-  description?: string;
-  timezone?: string;
-  endTimezone?: string;
-  hashtags?: string[];
-  references?: string[];
-  participants?: string[];
-  color?: string;
-  source?: string;
-}
 
 interface EventModalProps {
   event: CalendarEvent | null;
@@ -34,6 +18,8 @@ interface EventModalProps {
 }
 
 function EventModal({ event, onClose }: EventModalProps) {
+  const { user } = useCurrentUser();
+  
   if (!event) return null;
 
   const formatDateTime = (timestamp: string) => {
@@ -162,6 +148,45 @@ function EventModal({ event, onClose }: EventModalProps) {
                 Private
               </Badge>
             )}
+          </div>
+
+          {/* Notification Settings */}
+          {user && (event.kind === 31922 || event.kind === 31923) && (
+            <div className="pt-4 border-t">
+              <div className="flex items-center gap-2 mb-3">
+                <Bell className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Set Reminder</span>
+              </div>
+              <EventNotificationToggle event={event} variant="popover" />
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex gap-2 pt-4 border-t">
+            {user && (event.kind === 31922 || event.kind === 31923) && (
+              <QuickNotificationButton 
+                event={event} 
+                variant="outline" 
+                size="sm" 
+                className="flex-1"
+              />
+            )}
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => window.open(`/calendar/${event.id}`, '_blank')}
+              className="flex-1"
+            >
+              View Details
+            </Button>
+            <Button 
+              variant="default" 
+              size="sm" 
+              onClick={onClose}
+              className="flex-1"
+            >
+              Close
+            </Button>
           </div>
         </CardContent>
       </Card>

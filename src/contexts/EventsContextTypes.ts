@@ -7,7 +7,7 @@ export interface CalendarEvent {
   created_at: number;
   tags: string[][];
   content: string;
-  sig: string;
+  sig?: string;
   
   // Parsed calendar data
   dTag?: string;

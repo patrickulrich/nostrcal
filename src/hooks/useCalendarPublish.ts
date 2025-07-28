@@ -176,8 +176,7 @@ export function useCalendarPublish() {
       
       // NIP-65: Get optimal relays for publishing (includes mentioned users' read relays)
       try {
-        const optimalRelays = await _getRelaysForPublishing(signedEvent);
-        console.log(`[NIP-65] Publishing calendar event to ${optimalRelays.length} optimal relays:`, optimalRelays);
+        const _optimalRelays = await _getRelaysForPublishing(signedEvent);
       } catch (error) {
         console.warn('[NIP-65] Failed to get optimal relays, using default publishing:', error);
       }
