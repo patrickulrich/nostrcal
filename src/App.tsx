@@ -17,7 +17,6 @@ import { EventsProvider } from '@/contexts/EventsContext';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RelayManager } from '@/components/RelayManager';
 import { NotificationManager } from '@/components/NotificationManager';
-import { AmberCallbackHandler } from '@/components/AmberCallbackHandler';
 import AppRouter from './AppRouter';
 
 const head = createHead({
@@ -69,7 +68,6 @@ export function App() {
                   <CalendarProvider>
                     <EventsProvider>
                       <NotificationProvider>
-                        <AmberCallbackHandler />
                         <NotificationManager />
                         <Toaster />
                         <Sonner />

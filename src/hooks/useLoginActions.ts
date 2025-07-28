@@ -1,7 +1,6 @@
 import { useNostr } from '@nostrify/react';
 import { NLogin, useNostrLogin, NLoginType } from '@nostrify/react/login';
 import { createBunkerLogin, parseBunkerUri } from '@/utils/bunker-connect';
-import { requestAmberPublicKey } from '@/utils/amber-nip55';
 
 // NOTE: This file should not be edited except for adding new login methods.
 
@@ -63,28 +62,6 @@ export function useLoginActions() {
     async extension(): Promise<void> {
       const login = await NLogin.fromExtension();
       addLogin(login);
-    },
-    // Login with Amber (NIP-55 Android signer)
-    async amber(): Promise<void> {
-      console.log('[Amber Login] Requesting public key from Amber...');
-      
-      try {
-        const pubkey = await requestAmberPublicKey();
-        console.log('[Amber Login] Received pubkey:', pubkey.substring(0, 8) + '...');
-        
-        // Create a custom login for Amber - this will be a signing-capable login
-        // but will redirect to Amber for each signature request
-        const login = new NLogin('x-amber' as any, pubkey, {
-          signerType: 'amber',
-          requiresExternalSigning: true
-        });
-        addLogin(login as any);
-        console.log('[Amber Login] Login added successfully');
-        
-      } catch (error) {
-        console.error('[Amber Login] Failed:', error);
-        throw new Error(error instanceof Error ? error.message : 'Failed to login with Amber');
-      }
     },
     // Log out the current user
     async logout(): Promise<void> {
