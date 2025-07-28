@@ -5,7 +5,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { Shield, Upload, AlertTriangle, UserPlus, KeyRound, Sparkles, Cloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useLoginActions } from '@/hooks/useLoginActions';
@@ -23,34 +23,7 @@ const validateNsec = (nsec: string) => {
 };
 
 const validateBunkerUri = (uri: string) => {
-  if (!uri.startsWith('bunker://')) {
-    return false;
-  }
-  
-  try {
-    // Parse the URI to validate its structure
-    const url = new URL(uri);
-    
-    // For bunker URIs, the pubkey is the hostname part
-    const pubkey = url.hostname;
-    if (!/^[a-fA-F0-9]{64}$/.test(pubkey)) {
-      console.log('Invalid pubkey format:', pubkey);
-      return false;
-    }
-    
-    // Should have a relay parameter
-    const relay = url.searchParams.get('relay');
-    if (!relay || !relay.startsWith('wss://')) {
-      console.log('Invalid or missing relay:', relay);
-      return false;
-    }
-    
-    console.log('Bunker URI validation passed:', { pubkey: pubkey.substring(0, 8) + '...', relay });
-    return true;
-  } catch (error) {
-    console.log('Bunker URI parsing error:', error);
-    return false;
-  }
+  return uri.startsWith('bunker://');
 };
 
 const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin, onSignup }) => {
@@ -108,7 +81,6 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin, onS
     }
   };
 
-
   const executeLogin = (key: string) => {
     setIsLoading(true);
     setErrors({});
@@ -146,7 +118,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin, onS
     }
 
     if (!validateBunkerUri(bunkerUri)) {
-      setErrors(prev => ({ ...prev, bunker: 'Invalid bunker URI format. Must include a valid pubkey and relay URL.' }));
+      setErrors(prev => ({ ...prev, bunker: 'Invalid bunker URI format. Must start with bunker://' }));
       return;
     }
 
@@ -154,19 +126,15 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin, onS
     setErrors(prev => ({ ...prev, bunker: undefined }));
 
     try {
-      console.log('[LoginDialog] Attempting bunker login...');
       await login.bunker(bunkerUri);
-      console.log('[LoginDialog] Bunker login successful');
       onLogin();
       onClose();
       // Clear the URI from memory
       setBunkerUri('');
-    } catch (error) {
-      console.error('[LoginDialog] Bunker login failed:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to connect to bunker. Please check the URI.';
+    } catch {
       setErrors(prev => ({
         ...prev,
-        bunker: errorMessage
+        bunker: 'Failed to connect to bunker. Please check the URI.'
       }));
     } finally {
       setIsLoading(false);
@@ -217,7 +185,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin, onS
         className={cn("max-w-[95vw] sm:max-w-md max-h-[90vh] max-h-[90dvh] p-0 overflow-hidden rounded-2xl overflow-y-scroll")}
       >
         <DialogHeader className={cn('px-6 pt-6 pb-1 relative')}>
-            <DialogTitle className="sr-only">Sign up or Log in</DialogTitle>
+
             <DialogDescription className="text-center">
               Sign up or log in to continue
             </DialogDescription>
@@ -244,7 +212,6 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin, onS
               </Button>
             </div>
           </div>
-
 
           {/* Divider */}
           <div className='relative'>
