@@ -2,8 +2,6 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNostr } from '@nostrify/react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useNIP65RelayRouting } from '@/hooks/useNIP65RelayRouting';
-import { usePublishGeneralRelayList } from '@/hooks/useGeneralRelayList';
-import { useGeneralRelayConfig } from '@/hooks/useGeneralRelayConfig';
 import { extractLnurlFromProfile } from '@/utils/nip57';
 
 interface Participant {
@@ -75,8 +73,6 @@ export function useCalendarPublish() {
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
   const { getRelaysForPublishing: _getRelaysForPublishing } = useNIP65RelayRouting();
-  const publishGeneralRelayList = usePublishGeneralRelayList();
-  const { generalRelays } = useGeneralRelayConfig();
 
   return useMutation({
     mutationFn: async (eventData: CreateCalendarEventData) => {
@@ -187,17 +183,6 @@ export function useCalendarPublish() {
       }
       
       const result = await nostr.event(signedEvent);
-      
-      // NIP-65: Propagate user's kind 10002 relay list to the same relays
-      try {
-        if (generalRelays.length > 0) {
-          await publishGeneralRelayList.mutateAsync(generalRelays);
-          console.log('[NIP-65] Successfully propagated kind 10002 relay list after event publishing');
-        }
-      } catch (error) {
-        console.warn('[NIP-65] Failed to propagate kind 10002 relay list:', error);
-        // Don't fail the main event publishing if relay list propagation fails
-      }
       
       // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
