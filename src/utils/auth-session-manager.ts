@@ -63,6 +63,7 @@ export class AuthSessionManager {
     try {
       const authEvent = await createAuthEvent(challenge, normalized, signer);
       
+      
       // Store successful session
       this.sessions.set(normalized, {
         url: normalized,

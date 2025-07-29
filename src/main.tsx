@@ -21,8 +21,9 @@ initNostrLogin({
   theme: 'default',
   startScreen: 'welcome',
   bunkers: 'nsec.app',
-  perms: 'sign_event:0,sign_event:1,sign_event:3,sign_event:10002,sign_event:10050,sign_event:31922,sign_event:31923,sign_event:31924,sign_event:31925,sign_event:31926,sign_event:31927,sign_event:1111,sign_event:9735,sign_event:11,sign_event:22,sign_event:25,nip44_encrypt,nip44_decrypt',
+  perms: 'sign_event:0,sign_event:1,sign_event:3,sign_event:10002,sign_event:10050,sign_event:31922,sign_event:31923,sign_event:31924,sign_event:31925,sign_event:31926,sign_event:31927,sign_event:1111,sign_event:9735,sign_event:11,sign_event:22,sign_event:25,sign_event:22242,nip44_encrypt,nip44_decrypt',
   noBanner: true,
+  debug: false, // Disable debug logging
 });
 
 // Initialize IndexedDB and migrate from localStorage

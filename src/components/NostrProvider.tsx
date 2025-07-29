@@ -37,11 +37,28 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
     open(url: string) {
       const relayOptions: { auth?: (challenge: string) => Promise<NostrEvent> } = {};
       
-      // Add authentication if enabled
-      if (config.enableAuth) {
+      // Add authentication if enabled and signer is available
+      if (config.enableAuth && (signerRef.current || window.nostr)) {
         relayOptions.auth = async (challenge: string) => {
-          // Use window.nostr as signer
-          const signer = signerRef.current || window.nostr;
+          
+          // Use the proper signer from signerRef or create adapter from window.nostr
+          let signer = signerRef.current;
+          
+          if (!signer && window.nostr) {
+            // Create signer adapter from window.nostr for bunker/extension compatibility
+            signer = {
+              getPublicKey: () => window.nostr!.getPublicKey(),
+              signEvent: (event) => window.nostr!.signEvent(event),
+              nip44: window.nostr!.nip44 ? {
+                encrypt: (pubkey, plaintext) => window.nostr!.nip44!.encrypt(pubkey, plaintext),
+                decrypt: (pubkey, ciphertext) => window.nostr!.nip44!.decrypt(pubkey, ciphertext),
+              } : undefined,
+              nip04: window.nostr!.nip04 ? {
+                encrypt: (pubkey, plaintext) => window.nostr!.nip04!.encrypt(pubkey, plaintext),
+                decrypt: (pubkey, ciphertext) => window.nostr!.nip04!.decrypt(pubkey, ciphertext),
+              } : undefined,
+            };
+          }
           
           if (signer) {
             try {
@@ -51,12 +68,10 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
               }
               return authEvent;
             } catch (error) {
-              console.error('❌ [Auth] Session authentication failed:', error);
               throw error;
             }
           }
           
-          console.error('❌ [Auth] No signer available for auth challenge');
           throw new Error('No signer available');
         };
       }
@@ -184,10 +199,17 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
   useEffect(() => {
     const updateSigner = async () => {
       try {
-        if (window.nostr) {
-          const pubkey = await window.nostr.getPublicKey();
-          setCurrentPubkey(pubkey);
-          signerRef.current = window.nostr;
+        // Only check if window.nostr is already available to avoid bunker conflicts
+        if (window.nostr && typeof window.nostr.getPublicKey === 'function') {
+          try {
+            const pubkey = await window.nostr.getPublicKey();
+            setCurrentPubkey(pubkey);
+            signerRef.current = window.nostr;
+          } catch (error) {
+            // Don't log bunker-related errors as they're expected during initialization
+            setCurrentPubkey(undefined);
+            signerRef.current = null;
+          }
         } else {
           setCurrentPubkey(undefined);
           signerRef.current = null;
@@ -199,13 +221,16 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
     };
 
     const handleAuth = (_e: CustomEvent) => {
-      updateSigner();
+      // Delay to allow nostr-login to fully initialize window.nostr
+      setTimeout(() => {
+        updateSigner();
+      }, 100);
       // Reset all auth sessions on login change
       authSessionManager.reset();
     };
 
-    // Check initial state
-    updateSigner();
+    // Don't check initial state to avoid bunker conflicts
+    // Only update when we receive explicit auth events
 
     // Listen for auth changes
     document.addEventListener('nlAuth', handleAuth as EventListener);

@@ -12,17 +12,24 @@ export async function createAuthEvent(
   relayUrl: string,
   signer: NostrSigner
 ) {
-  const authEvent = {
-    kind: 22242,
-    created_at: Math.floor(Date.now() / 1000),
-    tags: [
-      ['relay', relayUrl],
-      ['challenge', challenge]
-    ],
-    content: '',
-  };
+  try {
+    // Create the AUTH event as per NIP-42 specification
+    const authEvent = {
+      kind: 22242, // Ephemeral event kind for AUTH
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ['relay', relayUrl],
+        ['challenge', challenge]
+      ],
+      content: '', // Empty content as per spec
+    };
 
-  return await signer.signEvent(authEvent);
+    const signedEvent = await signer.signEvent(authEvent);
+    return signedEvent;
+  } catch (error) {
+    console.error('❌ [AuthEvent] Failed to sign auth event:', { error, relay: relayUrl, challenge: challenge.slice(0, 16) + '...' });
+    throw error;
+  }
 }
 
 /**
