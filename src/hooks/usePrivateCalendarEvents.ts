@@ -116,7 +116,6 @@ export function usePrivateCalendarEvents() {
             (async () => {
               try {
                 // Attempt to decrypt event
-                
                 const rumor = await unwrapPrivateEventWithSigner(event, user.signer!);
                 
                 if (rumor && rumor.id && isCalendarRumor(rumor) && isMounted) {
@@ -143,6 +142,8 @@ export function usePrivateCalendarEvents() {
                   error: error instanceof Error ? error.message : 'Unknown error',
                   timestamp: Date.now()
                 });
+                console.error('User signer has nip44:', !!user.signer?.nip44);
+                console.error('Event details:', {kind: event.kind, pubkey: event.pubkey});
               }
             })();
             

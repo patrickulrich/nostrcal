@@ -8,7 +8,6 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useLoginActions } from '@/hooks/useLoginActions';
 import { cn } from '@/lib/utils';
 
 interface LoginDialogProps {
@@ -38,7 +37,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin, onS
     extension?: string;
   }>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const login = useLoginActions();
+  // const login = useLoginActions(); // Removed - using nostr-login now
 
   // Reset all state when dialog opens/closes
   useEffect(() => {
@@ -64,7 +63,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin, onS
       if (!('nostr' in window)) {
         throw new Error('Nostr extension not found. Please install a NIP-07 extension.');
       }
-      await login.extension();
+      // await login.extension(); // Using nostr-login now
       onLogin();
       onClose();
     } catch (e: unknown) {
@@ -81,14 +80,14 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin, onS
     }
   };
 
-  const executeLogin = (key: string) => {
+  const executeLogin = (_key: string) => {
     setIsLoading(true);
     setErrors({});
 
     // Use a timeout to allow the UI to update before the synchronous login call
     setTimeout(() => {
       try {
-        login.nsec(key);
+        // login.nsec(key); // Using nostr-login now
         onLogin();
         onClose();
       } catch {
@@ -126,7 +125,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin, onS
     setErrors(prev => ({ ...prev, bunker: undefined }));
 
     try {
-      await login.bunker(bunkerUri);
+      // await login.bunker(bunkerUri); // Using nostr-login now
       onLogin();
       onClose();
       // Clear the URI from memory

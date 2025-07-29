@@ -1,63 +1,73 @@
 // NOTE: This file is stable and usually should not be modified.
 // It is important that all functionality in this file is preserved, and should only be modified if explicitly requested.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { User, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button.tsx';
-import LoginDialog from './LoginDialog';
-import SignupDialog from './SignupDialog';
-import { useLoggedInAccounts } from '@/hooks/useLoggedInAccounts';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { AccountSwitcher } from './AccountSwitcher';
 import { cn } from '@/lib/utils';
+import { launch as launchNostrLoginDialog } from 'nostr-login';
 
 export interface LoginAreaProps {
   className?: string;
 }
 
 export function LoginArea({ className }: LoginAreaProps) {
-  const { currentUser } = useLoggedInAccounts();
-  const [loginDialogOpen, setLoginDialogOpen] = useState(false);
-  const [signupDialogOpen, setSignupDialogOpen] = useState(false);
+  const { user } = useCurrentUser();
+  const [isLaunching, setIsLaunching] = useState(false);
 
-  const handleLogin = () => {
-    setLoginDialogOpen(false);
-    setSignupDialogOpen(false);
+  // Listen for auth events from nostr-login
+  useEffect(() => {
+    const handleAuth = async (e: CustomEvent) => {
+      if (e.detail.type === 'login' || e.detail.type === 'signup') {
+        setIsLaunching(false);
+      } else if (e.detail.type === 'logout') {
+        setIsLaunching(false);
+      }
+    };
+
+    document.addEventListener('nlAuth', handleAuth as EventListener);
+    
+    // Don't check initial login state for bunker compatibility
+    // Wait for explicit nlAuth events instead
+
+    return () => {
+      document.removeEventListener('nlAuth', handleAuth as EventListener);
+    };
+  }, []);
+
+  const handleLaunch = (startScreen: 'welcome-login' | 'signup') => {
+    if (isLaunching) return;
+    setIsLaunching(true);
+    launchNostrLoginDialog(startScreen);
   };
 
   return (
     <div className={cn("inline-flex items-center justify-center", className)}>
-      {currentUser ? (
-        <AccountSwitcher onAddAccountClick={() => setLoginDialogOpen(true)} />
+      {user ? (
+        <AccountSwitcher onAddAccountClick={() => handleLaunch('welcome-login')} />
       ) : (
         <div className="flex gap-3 justify-center">
           <Button
-            onClick={() => setLoginDialogOpen(true)}
+            onClick={() => handleLaunch('welcome-login')}
+            disabled={isLaunching}
             className='flex items-center gap-2 px-4 py-2 rounded-full bg-primary text-primary-foreground w-full font-medium transition-all hover:bg-primary/90 animate-scale-in'
           >
             <User className='w-4 h-4' />
-            <span className='truncate'>Log in</span>
-          </Button><Button
-            onClick={() => setSignupDialogOpen(true)}
+            <span className='truncate'>{isLaunching ? 'Loading...' : 'Log in'}</span>
+          </Button>
+          <Button
+            onClick={() => handleLaunch('signup')}
+            disabled={isLaunching}
             variant="outline"
             className="flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-all"
           >
             <UserPlus className="w-4 h-4" />
-            <span>Sign Up</span>
+            <span>{isLaunching ? 'Loading...' : 'Sign Up'}</span>
           </Button>
         </div>
       )}
-
-      <LoginDialog
-        isOpen={loginDialogOpen}
-        onClose={() => setLoginDialogOpen(false)}
-        onLogin={handleLogin}
-        onSignup={() => setSignupDialogOpen(true)}
-      />
-
-      <SignupDialog
-        isOpen={signupDialogOpen}
-        onClose={() => setSignupDialogOpen(false)}
-      />
     </div>
   );
 }

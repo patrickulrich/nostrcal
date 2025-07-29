@@ -9,7 +9,6 @@ import NostrProvider from '@/components/NostrProvider';
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { NostrLoginProvider } from '@nostrify/react/login';
 import { AppProvider } from '@/components/AppProvider';
 import { AppConfig } from '@/contexts/AppContext';
 import { CalendarProvider } from '@/contexts/CalendarContext';
@@ -61,7 +60,6 @@ export function App() {
     <UnheadProvider head={head}>
       <AppProvider storageKey="nostr:app-config" defaultConfig={defaultConfig} presetRelays={presetRelays}>
         <QueryClientProvider client={queryClient}>
-          <NostrLoginProvider storageKey='nostr:login'>
             <NostrProvider>
               <RelayManager>
                 <TooltipProvider>
@@ -80,7 +78,6 @@ export function App() {
                 </TooltipProvider>
               </RelayManager>
             </NostrProvider>
-          </NostrLoginProvider>
         </QueryClientProvider>
       </AppProvider>
     </UnheadProvider>

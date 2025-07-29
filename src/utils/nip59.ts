@@ -182,8 +182,13 @@ export async function unwrapPrivateEventWithSigner(
   
   if (signer.nip44?.decrypt) {
     // Use signer's NIP-44 decrypt capability
-    const decryptedContent = await signer.nip44.decrypt(giftWrap.pubkey, giftWrap.content);
-    seal = JSON.parse(decryptedContent);
+    try {
+      const decryptedContent = await signer.nip44.decrypt(giftWrap.pubkey, giftWrap.content);
+      seal = JSON.parse(decryptedContent);
+    } catch (error) {
+      console.error('Gift wrap decryption failed:', error);
+      throw error;
+    }
   } else {
     throw new Error('Signer does not support NIP-44 decryption');
   }
@@ -198,8 +203,13 @@ export async function unwrapPrivateEventWithSigner(
   
   if (signer.nip44?.decrypt) {
     // Use signer's NIP-44 decrypt capability
-    const decryptedContent = await signer.nip44.decrypt(seal.pubkey, seal.content);
-    rumor = JSON.parse(decryptedContent);
+    try {
+      const decryptedContent = await signer.nip44.decrypt(seal.pubkey, seal.content);
+      rumor = JSON.parse(decryptedContent);
+    } catch (error) {
+      console.error('Seal decryption failed:', error);
+      throw error;
+    }
   } else {
     throw new Error('Signer does not support NIP-44 decryption');
   }

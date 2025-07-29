@@ -24,7 +24,7 @@ export function useRelayPreferences() {
         return { preferences: [], hasPublished: false };
       }
 
-      const signal = AbortSignal.any([c.signal, AbortSignal.timeout(5000)]);
+      const signal = AbortSignal.any([c.signal, AbortSignal.timeout(2000)]); // Reduced to 2 seconds
       
       const events = await nostr.query([
         {
@@ -53,6 +53,8 @@ export function useRelayPreferences() {
     enabled: !!user?.pubkey,
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes
+    // Provide immediate defaults to eliminate loading delay
+    placeholderData: user?.pubkey ? { preferences: getDefaultRelayPreferences(), hasPublished: false } : undefined,
   });
 
   const mutation = useMutation({

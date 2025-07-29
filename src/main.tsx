@@ -11,9 +11,19 @@ import './index.css';
 // @ts-expect-error - Virtual module from vite-plugin-pwa
 import { registerSW } from 'virtual:pwa-register';
 import { initializeDB } from '@/lib/indexeddb';
+import { init as initNostrLogin } from 'nostr-login';
 
 // TODO: a custom font should be used. Eg:
 // import '@fontsource-variable/<font-name>';
+
+// Initialize nostr-login before any window.nostr calls
+initNostrLogin({
+  theme: 'default',
+  startScreen: 'welcome',
+  bunkers: 'nsec.app',
+  perms: 'sign_event:0,sign_event:1,sign_event:3,sign_event:10002,sign_event:10050,sign_event:31922,sign_event:31923,sign_event:31924,sign_event:31925,sign_event:31926,sign_event:31927,sign_event:1111,sign_event:9735,sign_event:11,sign_event:22,sign_event:25,nip44_encrypt,nip44_decrypt',
+  noBanner: true,
+});
 
 // Initialize IndexedDB and migrate from localStorage
 initializeDB().catch(console.error);

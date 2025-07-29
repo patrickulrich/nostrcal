@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from '@/hooks/useToast';
-import { useLoginActions } from '@/hooks/useLoginActions';
+// import { useLoginActions } from '@/hooks/useLoginActions'; // Using nostr-login now
 import { useNostrPublish } from '@/hooks/useNostrPublish';
 import { useUploadFile } from '@/hooks/useUploadFile';
 import { generateSecretKey, nip19 } from 'nostr-tools';
@@ -36,7 +36,7 @@ const SignupDialog: React.FC<SignupDialogProps> = ({ isOpen, onClose, onComplete
     about: '',
     picture: ''
   });
-  const login = useLoginActions();
+  // const login = useLoginActions(); // Using nostr-login now
   const { mutateAsync: publishEvent, isPending: isPublishing } = useNostrPublish();
   const { mutateAsync: uploadFile, isPending: isUploading } = useUploadFile();
   const avatarFileInputRef = useRef<HTMLInputElement>(null);
@@ -121,7 +121,7 @@ const SignupDialog: React.FC<SignupDialogProps> = ({ isOpen, onClose, onComplete
 
   const finishKeySetup = () => {
     try {
-      login.nsec(nsec);
+      // login.nsec(nsec); // Using nostr-login now
       setStep('profile');
     } catch {
       toast({

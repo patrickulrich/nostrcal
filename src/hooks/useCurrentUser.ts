@@ -1,52 +1,131 @@
-import { type NLoginType, NUser, useNostrLogin } from '@nostrify/react/login';
-import { useNostr } from '@nostrify/react';
-import { useCallback, useMemo } from 'react';
-
+import { useState, useEffect, useMemo } from 'react';
 import { useAuthor } from './useAuthor.ts';
+import { NostrSigner } from '@nostrify/nostrify';
+
+// Adapter to convert window.nostr to NostrSigner interface
+function createSignerAdapter(windowNostr: NonNullable<typeof window.nostr>): NostrSigner {
+  return {
+    getPublicKey: () => windowNostr.getPublicKey(),
+    signEvent: (event) => windowNostr.signEvent(event),
+    nip44: windowNostr.nip44 ? {
+      encrypt: (pubkey, plaintext) => windowNostr.nip44!.encrypt(pubkey, plaintext),
+      decrypt: (pubkey, ciphertext) => windowNostr.nip44!.decrypt(pubkey, ciphertext),
+    } : undefined,
+    nip04: windowNostr.nip04 ? {
+      encrypt: (pubkey, plaintext) => windowNostr.nip04!.encrypt(pubkey, plaintext),
+      decrypt: (pubkey, ciphertext) => windowNostr.nip04!.decrypt(pubkey, ciphertext),
+    } : undefined,
+  };
+}
+
+interface SimpleUser {
+  pubkey: string;
+  signer: NostrSigner;
+  metadata?: any;
+}
+
+// Global auth state to share between hook instances
+let globalPubkey: string | undefined = undefined;
+let globalIsLoading = true;
+const subscribers: Set<(pubkey: string | undefined, isLoading: boolean) => void> = new Set();
+let isGlobalAuthSetup = false;
+
+function notifySubscribers() {
+  subscribers.forEach(callback => callback(globalPubkey, globalIsLoading));
+}
+
+function setupGlobalAuth() {
+  if (isGlobalAuthSetup) return;
+  isGlobalAuthSetup = true;
+  
+  let isProcessingAuth = false;
+  let lastAuthTimestamp = 0;
+  
+  const checkLogin = async () => {
+    if (isProcessingAuth) return;
+    isProcessingAuth = true;
+    
+    try {
+      if (window.nostr) {
+        const pk = await window.nostr.getPublicKey();
+        globalPubkey = pk;
+      } else {
+        globalPubkey = undefined;
+      }
+    } catch {
+      globalPubkey = undefined;
+    } finally {
+      globalIsLoading = false;
+      isProcessingAuth = false;
+      notifySubscribers();
+    }
+  };
+
+  const handleAuth = (e: CustomEvent) => {
+    // Debounce rapid auth events
+    const now = Date.now();
+    if (now - lastAuthTimestamp < 100) return;
+    lastAuthTimestamp = now;
+    
+    if (e.detail.type === 'logout') {
+      globalPubkey = undefined;
+      globalIsLoading = false;
+      notifySubscribers();
+    } else if (e.detail.type === 'login' || e.detail.type === 'signup') {
+      checkLogin();
+    }
+  };
+
+  // Don't check initial auth state to avoid interfering with bunker flows
+  globalIsLoading = false;
+  notifySubscribers();
+
+  // Listen for auth changes
+  document.addEventListener('nlAuth', handleAuth as EventListener);
+}
 
 export function useCurrentUser() {
-  const { nostr } = useNostr();
-  const { logins } = useNostrLogin();
+  const [pubkey, setPubkey] = useState<string | undefined>(globalPubkey);
+  const [isLoading, setIsLoading] = useState(globalIsLoading);
+  
+  useEffect(() => {
+    // Setup global auth handling once
+    setupGlobalAuth();
+    
+    // Subscribe to global auth changes
+    const handleAuthChange = (newPubkey: string | undefined, newIsLoading: boolean) => {
+      setPubkey(newPubkey);
+      setIsLoading(newIsLoading);
+    };
+    
+    subscribers.add(handleAuthChange);
+    
+    // Set initial state
+    handleAuthChange(globalPubkey, globalIsLoading);
+    
+    return () => {
+      subscribers.delete(handleAuthChange);
+    };
+  }, []);
 
-  const loginToUser = useCallback((login: NLoginType): NUser  => {
-    switch (login.type) {
-      case 'nsec': // Nostr login with secret key
-        return NUser.fromNsecLogin(login);
-      case 'bunker': // Nostr login with NIP-46 "bunker://" URI
-        return NUser.fromBunkerLogin(login, nostr);
-      case 'extension': // Nostr login with NIP-07 browser extension
-        return NUser.fromExtensionLogin(login);
-      // Other login types can be defined here
-      default:
-        throw new Error(`Unsupported login type: ${login.type}`);
-    }
-  }, [nostr]);
+  const author = useAuthor(pubkey);
+  
+  // Memoize the signer to prevent excessive re-creation
+  const signer = useMemo(() => {
+    return window.nostr ? createSignerAdapter(window.nostr) : null;
+  }, [pubkey]); // Recreate when pubkey changes (indicates new auth)
+  
+  const user: SimpleUser | undefined = pubkey && signer ? {
+    pubkey,
+    signer,
+    metadata: author.data?.metadata
+  } : undefined;
 
-  const users = useMemo(() => {
-    const users: NUser[] = [];
-
-    for (const login of logins) {
-      try {
-        const user = loginToUser(login);
-        users.push(user);
-      } catch (error) {
-        console.warn('Skipped invalid login', login.id, error);
-      }
-    }
-
-    return users;
-  }, [logins, loginToUser]);
-
-  const user = users[0] as NUser | undefined;
-  const author = useAuthor(user?.pubkey);
-
-  // Simple loading state: we're loading if we have logins but no user with signer yet
-  const isLoading = (logins.length > 0 && !user?.signer) || author.isLoading;
 
   return {
     user,
-    users,
+    users: user ? [user] : [],
     ...author.data,
-    isLoading,
+    isLoading: isLoading || author.isLoading,
   };
 }

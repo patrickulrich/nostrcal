@@ -1,7 +1,6 @@
-import React, { useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { NostrEvent, NPool, NRelay1 } from '@nostrify/nostrify';
 import { NostrContext } from '@nostrify/react';
-import { useNostrLogin, NUser } from '@nostrify/react/login';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppContext } from '@/hooks/useAppContext';
 // import { createAuthEvent, normalizeRelayUrl } from '@/utils/nostr-auth';
@@ -25,13 +24,13 @@ interface NostrProviderProps {
 const NostrProvider: React.FC<NostrProviderProps> = (props) => {
   const { children } = props;
   const { config, presetRelays } = useAppContext();
-  const { logins } = useNostrLogin();
+  const [_currentPubkey, setCurrentPubkey] = useState<string | undefined>();
 
   const queryClient = useQueryClient();
 
   // Use refs so the pool always has the latest data
   const relayUrls = useRef<string[]>(config.relayUrls || []);
-  const currentUserRef = useRef<NUser | null>(null);
+  const signerRef = useRef<typeof window.nostr | null>(null);
 
   // Create pool first, then use it for bunker users
   const pool = useMemo(() => new NPool({
@@ -41,12 +40,12 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
       // Add authentication if enabled
       if (config.enableAuth) {
         relayOptions.auth = async (challenge: string) => {
-          // Use ref to get current user state
-          const currentUser = currentUserRef.current;
+          // Use window.nostr as signer
+          const signer = signerRef.current || window.nostr;
           
-          if (currentUser?.signer) {
+          if (signer) {
             try {
-              const authEvent = await authSessionManager.authenticate(url, challenge, currentUser.signer);
+              const authEvent = await authSessionManager.authenticate(url, challenge, signer as any);
               if (!authEvent) {
                 throw new Error('Authentication failed: no auth event returned');
               }
@@ -57,8 +56,8 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
             }
           }
           
-          console.error('❌ [Auth] No user signer available for auth challenge');
-          throw new Error('No user signer available');
+          console.error('❌ [Auth] No signer available for auth challenge');
+          throw new Error('No signer available');
         };
       }
       
@@ -175,56 +174,46 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
     },
   }), [config.enableAuth, presetRelays]);
 
-  // Helper function to get current user from logins (now can use pool for bunker)
-  const getCurrentUser = useCallback(() => {
-    if (logins.length === 0) {
-      return null;
-    }
-    
-    const login = logins[0];
-    try {
-      let user: NUser | null = null;
-      switch (login.type) {
-        case 'nsec':
-          user = NUser.fromNsecLogin(login);
-          break;
-        case 'extension':
-          user = NUser.fromExtensionLogin(login);
-          break;
-        case 'bunker':
-          // Now we can use the pool since it's created above
-          user = NUser.fromBunkerLogin(login, pool);
-          break;
-        default:
-          console.warn(`[NostrProvider] Unsupported login type: ${login.type}`);
-          return null;
-      }
-      
-      if (user?.signer) {
-        return user;
-      } else {
-        console.warn('[NostrProvider] User created but no signer available');
-        return null;
-      }
-    } catch (error) {
-      console.error('[NostrProvider] Failed to create user from login:', error);
-      return null;
-    }
-  }, [logins, pool]);
-
   // Update refs when config changes
   useEffect(() => {
     relayUrls.current = config.relayUrls || [];
     queryClient.resetQueries();
   }, [config.relayUrls, queryClient]);
 
-  // Update user ref when logins change
+  // Listen for auth changes and update signer
   useEffect(() => {
-    currentUserRef.current = getCurrentUser();
-    
-    // Reset all auth sessions on login change
-    authSessionManager.reset();
-  }, [logins, getCurrentUser]);
+    const updateSigner = async () => {
+      try {
+        if (window.nostr) {
+          const pubkey = await window.nostr.getPublicKey();
+          setCurrentPubkey(pubkey);
+          signerRef.current = window.nostr;
+        } else {
+          setCurrentPubkey(undefined);
+          signerRef.current = null;
+        }
+      } catch {
+        setCurrentPubkey(undefined);
+        signerRef.current = null;
+      }
+    };
+
+    const handleAuth = (_e: CustomEvent) => {
+      updateSigner();
+      // Reset all auth sessions on login change
+      authSessionManager.reset();
+    };
+
+    // Check initial state
+    updateSigner();
+
+    // Listen for auth changes
+    document.addEventListener('nlAuth', handleAuth as EventListener);
+
+    return () => {
+      document.removeEventListener('nlAuth', handleAuth as EventListener);
+    };
+  }, []);
 
   // Expose pool for debugging
   useEffect(() => {
