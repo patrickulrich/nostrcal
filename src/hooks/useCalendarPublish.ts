@@ -333,7 +333,7 @@ export function useCreateRSVP() {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
-  const { getRelaysForPublishing: _getRelaysForPublishing } = useNIP65RelayRouting();
+  const { getRelaysForRSVP } = useNIP65RelayRouting();
 
   return useMutation({
     mutationFn: async (rsvpData: CreateRSVPData) => {
@@ -367,12 +367,12 @@ export function useCreateRSVP() {
 
       const signedEvent = await user.signer.signEvent(unsignedEvent);
       
-      // NIP-65: Get optimal relays for publishing
+      // NIP-65: Get optimal relays for RSVP publishing (uses original event author's relays)
       let publishRelays: string[] | undefined;
       try {
-        publishRelays = await _getRelaysForPublishing(signedEvent, rsvpData.isPrivate || false); // Use isPrivate flag from RSVP data
+        publishRelays = await getRelaysForRSVP(rsvpData.eventAuthorPubkey, rsvpData.isPrivate || false);
       } catch (error) {
-        console.warn('[NIP-65] Failed to get optimal relays, using default publishing:', error);
+        console.warn('[NIP-65] Failed to get optimal relays for RSVP, using default publishing:', error);
       }
       
       const result = await nostr.event(signedEvent, { relays: publishRelays });

@@ -101,6 +101,36 @@ export function useNIP65RelayRouting() {
   };
 
   /**
+   * Get relays for publishing RSVPs to a specific event author
+   * Uses the original event author's NIP-65 write relays + RSVP author's configured relays
+   */
+  const getRelaysForRSVP = async (eventAuthorPubkey: string, isPrivateEvent = false): Promise<string[]> => {
+    const publishRelays = new Set<string>();
+    
+    if (isPrivateEvent) {
+      // For private RSVPs, use configured relays only
+      (config.relayUrls || []).forEach(relay => publishRelays.add(relay));
+    } else {
+      // For public RSVPs, use original event author's NIP-65 write relays
+      try {
+        const authorRelays = await getAuthorRelayListMetadata(eventAuthorPubkey, nostr);
+        const writeRelays = getWriteRelays(authorRelays);
+        
+        if (writeRelays.length > 0) {
+          writeRelays.forEach(relay => publishRelays.add(relay));
+        }
+      } catch (error) {
+        console.warn(`Failed to get relay list for event author ${eventAuthorPubkey}:`, error);
+      }
+      
+      // Also add RSVP author's configured relays for redundancy
+      (config.relayUrls || []).forEach(relay => publishRelays.add(relay));
+    }
+
+    return Array.from(publishRelays);
+  };
+
+  /**
    * Get relays for publishing an event
    * For public events: Uses author's NIP-65 write relays + mentioned users' read relays
    * For private events: Uses configured relays (legacy behavior for private relay list)
@@ -152,5 +182,6 @@ export function useNIP65RelayRouting() {
     getRelaysForMentions,
     getRelaysForFilter,
     getRelaysForPublishing,
+    getRelaysForRSVP,
   };
 }
