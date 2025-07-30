@@ -57,6 +57,7 @@ interface CreateRSVPData {
   status: 'accepted' | 'declined' | 'tentative';
   note?: string;
   eventAuthorPubkey: string;
+  isPrivate?: boolean;
 }
 
 // Generate UUID for d tags
@@ -199,7 +200,7 @@ export function useCalendarPublish() {
       // NIP-65: Get optimal relays for publishing (includes mentioned users' read relays)
       let publishRelays: string[] | undefined;
       try {
-        publishRelays = await _getRelaysForPublishing(signedEvent);
+        publishRelays = await _getRelaysForPublishing(signedEvent, eventData.isPrivate);
       } catch (error) {
         console.warn('[NIP-65] Failed to get optimal relays, using default publishing:', error);
       }
@@ -314,7 +315,7 @@ export function useCreateAvailabilityTemplate() {
       // NIP-65: Get optimal relays for publishing
       let publishRelays: string[] | undefined;
       try {
-        publishRelays = await _getRelaysForPublishing(signedEvent);
+        publishRelays = await _getRelaysForPublishing(signedEvent, false); // Availability templates are always public
       } catch (error) {
         console.warn('[NIP-65] Failed to get optimal relays, using default publishing:', error);
       }
@@ -369,7 +370,7 @@ export function useCreateRSVP() {
       // NIP-65: Get optimal relays for publishing
       let publishRelays: string[] | undefined;
       try {
-        publishRelays = await _getRelaysForPublishing(signedEvent);
+        publishRelays = await _getRelaysForPublishing(signedEvent, rsvpData.isPrivate || false); // Use isPrivate flag from RSVP data
       } catch (error) {
         console.warn('[NIP-65] Failed to get optimal relays, using default publishing:', error);
       }
@@ -421,7 +422,7 @@ export function useCreateCalendar() {
       // NIP-65: Get optimal relays for publishing
       let publishRelays: string[] | undefined;
       try {
-        publishRelays = await _getRelaysForPublishing(signedEvent);
+        publishRelays = await _getRelaysForPublishing(signedEvent, false); // Calendars are always public
       } catch (error) {
         console.warn('[NIP-65] Failed to get optimal relays, using default publishing:', error);
       }
@@ -460,7 +461,7 @@ export function useDeleteCalendarEvent() {
       // NIP-65: Get optimal relays for publishing
       let publishRelays: string[] | undefined;
       try {
-        publishRelays = await _getRelaysForPublishing(signedEvent);
+        publishRelays = await _getRelaysForPublishing(signedEvent, false); // Deletion events are always public
       } catch (error) {
         console.warn('[NIP-65] Failed to get optimal relays, using default publishing:', error);
       }

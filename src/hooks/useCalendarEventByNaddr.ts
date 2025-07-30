@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNostr } from '@nostrify/react';
 import { nip19 } from 'nostr-tools';
 import { CalendarEvent } from '@/contexts/EventsContextTypes';
+import { useNIP65RelayRouting } from '@/hooks/useNIP65RelayRouting';
 
 // Transform NostrEvent to CalendarEvent (reusing logic from useCalendarEvents)
 function transformEventForCalendar(event: any): CalendarEvent {
@@ -125,10 +126,12 @@ function validateCalendarEvent(event: any): boolean {
 
 export function useCalendarEventByNaddr(naddr: string) {
   const { nostr } = useNostr();
+  const { getRelaysForAuthor } = useNIP65RelayRouting();
 
   return useQuery({
     queryKey: ['calendar-event-by-naddr', naddr],
     queryFn: async (c) => {
+      
       if (!naddr) return null;
 
       let decoded;
@@ -142,40 +145,69 @@ export function useCalendarEventByNaddr(naddr: string) {
         throw new Error('Not an naddr identifier');
       }
 
-      const { kind, pubkey, identifier, relays } = decoded.data;
+      const { kind, pubkey, identifier } = decoded.data;
+      const relays = (decoded.data as any).relays;
+      
       
       // Check if it's a calendar event kind
       if (![31922, 31923, 31924, 31925, 31926, 31927].includes(kind)) {
         throw new Error('Not a calendar event');
       }
 
-      const signal = AbortSignal.any([c.signal, AbortSignal.timeout(5000)]);
+      const signal = AbortSignal.any([c.signal, AbortSignal.timeout(10000)]);
       
-      // Use relay hints from naddr if available
-      const queryOptions: any = { signal };
+      const filter = {
+        kinds: [kind],
+        authors: [pubkey],
+        '#d': [identifier],
+        limit: 1
+      };
+      
+      let events: any[] = [];
+      
+      // Strategy 1: Try relay hints from naddr first
       if (relays && relays.length > 0) {
-        queryOptions.relays = relays;
+        try {
+          events = await nostr.query([filter], { signal, relays });
+        } catch {
+          // Ignore query errors and continue to next strategy
+        }
       }
       
-      const events = await nostr.query([
-        {
-          kinds: [kind],
-          authors: [pubkey],
-          '#d': [identifier],
-          limit: 1
+      // Strategy 2: If no events found, try NIP-65 author relays as fallback
+      if (events.length === 0) {
+        try {
+          const authorRelays = await getRelaysForAuthor(pubkey);
+          
+          if (authorRelays.length > 0) {
+            events = await nostr.query([filter], { signal, relays: authorRelays });
+          }
+        } catch {
+          // Ignore query errors and continue to next strategy
         }
-      ], queryOptions);
+      }
+      
+      // Strategy 3: Final fallback to default relays (no relay restriction)
+      if (events.length === 0) {
+        try {
+          events = await nostr.query([filter], { signal });
+        } catch {
+          // Ignore query errors and continue to next strategy
+        }
+      }
 
       if (events.length === 0) {
         throw new Error('Event not found');
       }
 
       const event = events[0];
+      
       if (!validateCalendarEvent(event)) {
         throw new Error('Invalid calendar event');
       }
 
-      return transformEventForCalendar(event);
+      const transformed = transformEventForCalendar(event);
+      return transformed;
     },
     enabled: !!naddr,
     staleTime: 60 * 1000, // 1 minute

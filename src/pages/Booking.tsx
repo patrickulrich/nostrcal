@@ -130,7 +130,8 @@ export default function Booking() {
           return;
         }
 
-        const { kind, pubkey, identifier, relays } = decoded.data;
+        const { kind, pubkey, identifier } = decoded.data;
+        const relays = (decoded.data as any).relays;
         
         
         if (kind !== 31926) {

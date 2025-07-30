@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNostr } from '@nostrify/react';
 import { getAuthorRelayListMetadata, getWriteRelays, getReadRelays } from '@/utils/relay-preferences';
 import { useAppContext } from '@/hooks/useAppContext';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 /**
  * Hook for NIP-65 compliant relay routing
@@ -10,6 +11,7 @@ import { useAppContext } from '@/hooks/useAppContext';
 export function useNIP65RelayRouting() {
   const { nostr } = useNostr();
   const { config } = useAppContext();
+  const { user } = useCurrentUser();
 
   /**
    * Get optimal relays for fetching content FROM specific authors
@@ -100,13 +102,37 @@ export function useNIP65RelayRouting() {
 
   /**
    * Get relays for publishing an event
-   * Includes author's write relays + mentioned users' read relays
+   * For public events: Uses author's NIP-65 write relays + mentioned users' read relays
+   * For private events: Uses configured relays (legacy behavior for private relay list)
    */
-  const getRelaysForPublishing = async (event: any): Promise<string[]> => {
+  const getRelaysForPublishing = async (event: any, isPrivateEvent = false): Promise<string[]> => {
     const publishRelays = new Set<string>();
     
-    // Add configured relays (author's preference)
-    (config.relayUrls || []).forEach(relay => publishRelays.add(relay));
+    
+    if (isPrivateEvent) {
+      // For private events, use configured relays (typically NIP-59 private relay list)
+      (config.relayUrls || []).forEach(relay => publishRelays.add(relay));
+    } else {
+      // For public events, use author's NIP-65 write relays
+      try {
+        if (user?.pubkey) {
+          const authorRelays = await getAuthorRelayListMetadata(user.pubkey, nostr);
+          const writeRelays = getWriteRelays(authorRelays);
+          
+          if (writeRelays.length > 0) {
+            writeRelays.forEach(relay => publishRelays.add(relay));
+          } else {
+            // Fallback to configured relays if no write relays found
+            (config.relayUrls || []).forEach(relay => publishRelays.add(relay));
+          }
+        } else {
+          // Fallback to configured relays if no user
+          (config.relayUrls || []).forEach(relay => publishRelays.add(relay));
+        }
+      } catch {
+        (config.relayUrls || []).forEach(relay => publishRelays.add(relay));
+      }
+    }
 
     // Add mentioned users' read relays
     const mentionedUsers = event.tags

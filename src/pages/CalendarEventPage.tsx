@@ -44,11 +44,16 @@ export function CalendarEventPage() {
 function CalendarEventHandlerByNaddr({ naddr }: { naddr: string }) {
   const { data: event, isLoading, error } = useCalendarEventByNaddr(naddr);
 
+
   if (isLoading) {
     return <CalendarEventViewSkeleton />;
   }
 
-  if (error || !event) {
+  if (error) {
+    return <NotFound />;
+  }
+
+  if (!event) {
     return <NotFound />;
   }
 

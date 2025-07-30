@@ -47,7 +47,7 @@ import { Link } from 'react-router-dom';
 import { EventRSVPCount } from '@/components/EventRSVPCount';
 import { InlineEventRSVPCount } from '@/components/InlineEventRSVPCount';
 import { CalendarEvent } from '@/contexts/EventsContextTypes';
-import { generateEventNaddr } from '@/utils/event-utils';
+import { useEventNaddr } from '@/hooks/useEventNaddr';
 
 interface EventCardProps {
   event: CalendarEvent;
@@ -196,6 +196,7 @@ export default function Events() {
   const { data: events, isLoading, error, loadMore, hasMore, isLoadingMore } = usePublicCalendarEventsWithPagination();
   const { user } = useCurrentUser();
   const createRSVP = useCreateRSVP();
+  const { generateNaddrWithHints } = useEventNaddr();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
@@ -203,10 +204,12 @@ export default function Events() {
   const [locationFilter, setLocationFilter] = useState<'all' | 'online' | 'in-person'>('all');
   const [rsvpStatus, setRsvpStatus] = useState<RSVPStatus | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
+  const [eventNaddrs, setEventNaddrs] = useState<Record<string, string | null>>({});
   const existingRSVP = useRSVPStatus(selectedEvent?.id || '');
   
   // Get user's location for map centering
   const { userLocation, locationError: _locationError, isLoadingLocation: _isLoadingLocation } = useUserLocation();
+
 
   // Helper function to determine if location is online (contains hyperlink)
   const isOnlineLocation = (location: string | undefined): boolean => {
@@ -214,6 +217,33 @@ export default function Events() {
     // Use the more comprehensive check from geocoding utils
     return !isPhysicalAddress(location);
   };
+
+  // Generate naddr URLs for events with proper relay hints
+  useEffect(() => {
+    if (!events || events.length === 0) return;
+
+    const generateNaddrs = async () => {
+      const newNaddrs: Record<string, string | null> = {};
+      
+      for (const event of events) {
+        if (!newNaddrs[event.id] && !eventNaddrs[event.id]) {
+          try {
+            const naddr = await generateNaddrWithHints(event);
+            newNaddrs[event.id] = naddr;
+          } catch (error) {
+            console.warn(`Failed to generate naddr for event ${event.id}:`, error);
+            newNaddrs[event.id] = null;
+          }
+        }
+      }
+      
+      if (Object.keys(newNaddrs).length > 0) {
+        setEventNaddrs(prev => ({ ...prev, ...newNaddrs }));
+      }
+    };
+
+    generateNaddrs();
+  }, [events, generateNaddrWithHints, eventNaddrs]);
 
   // Process events to extract hashtags and images
   const processedEvents = events?.map(event => {
@@ -631,7 +661,7 @@ export default function Events() {
                           <div className="p-2 max-w-xs">
                             {(() => {
                               const originalEvent = sortedEvents.find(e => e.id === event.id);
-                              const eventNaddr = originalEvent ? generateEventNaddr(originalEvent) : null;
+                              const eventNaddr = originalEvent ? eventNaddrs[originalEvent.id] : null;
                               
                               return eventNaddr ? (
                                 <Link to={eventNaddr} className="block">
@@ -686,9 +716,9 @@ export default function Events() {
               <>
                 <DialogHeader>
                   <DialogTitle>
-                    {generateEventNaddr(selectedEvent) ? (
+                    {eventNaddrs[selectedEvent.id] ? (
                       <Link 
-                        to={generateEventNaddr(selectedEvent)!} 
+                        to={eventNaddrs[selectedEvent.id]!} 
                         className="inline-flex items-center gap-2 hover:underline focus:outline-none focus:underline"
                         title="View full event page"
                       >
