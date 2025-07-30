@@ -113,7 +113,7 @@ export function useCurrentUser() {
   // Memoize the signer to prevent excessive re-creation
   const signer = useMemo(() => {
     return window.nostr ? createSignerAdapter(window.nostr) : null;
-  }, [pubkey]); // Recreate when pubkey changes (indicates new auth)
+  }, []); // Static adapter - no need to recreate when pubkey changes
   
   const user: SimpleUser | undefined = pubkey && signer ? {
     pubkey,

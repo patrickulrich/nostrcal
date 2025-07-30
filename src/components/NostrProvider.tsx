@@ -61,15 +61,11 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
           }
           
           if (signer) {
-            try {
-              const authEvent = await authSessionManager.authenticate(url, challenge, signer as any);
-              if (!authEvent) {
-                throw new Error('Authentication failed: no auth event returned');
-              }
-              return authEvent;
-            } catch (error) {
-              throw error;
+            const authEvent = await authSessionManager.authenticate(url, challenge, signer as any);
+            if (!authEvent) {
+              throw new Error('Authentication failed: no auth event returned');
             }
+            return authEvent;
           }
           
           throw new Error('No signer available');
@@ -205,7 +201,7 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
             const pubkey = await window.nostr.getPublicKey();
             setCurrentPubkey(pubkey);
             signerRef.current = window.nostr;
-          } catch (error) {
+          } catch {
             // Don't log bunker-related errors as they're expected during initialization
             setCurrentPubkey(undefined);
             signerRef.current = null;

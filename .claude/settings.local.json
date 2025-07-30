@@ -13,7 +13,8 @@
       "Bash(npm run lint)",
       "mcp__nostrbook__read_kind",
       "mcp__nostrbook__read_nip",
-      "mcp__nostrbook__read_nips_index"
+      "mcp__nostrbook__read_nips_index",
+      "mcp__nostr__read_kind"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -22,8 +22,8 @@ import { NostrEvent } from '@nostrify/nostrify';
  */
 export function usePrivateCalendarEvents() {
   const { nostr } = useNostr();
-  const { user, isLoading: isUserLoading } = useCurrentUser();
-  const { preferences: _preferences, isLoading: isLoadingPreferences } = useRelayPreferences();
+  const { user } = useCurrentUser();
+  const { preferences: _preferences } = useRelayPreferences();
   const { config: _config } = useAppContext();
   const [privateEvents, setPrivateEvents] = useState<Rumor[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -34,25 +34,18 @@ export function usePrivateCalendarEvents() {
     return getReadRelays(_preferences);
   }, [_preferences]);
 
-  // Stream private events as they're decrypted
+  // Stream private events as they're decrypted - start immediately when user is available  
   useEffect(() => {
-    // Wait for user loading to complete (handles nsec race condition)
-    if (isUserLoading) {
-      return;
-    }
-
     // If no user logged in, no private events to show
     if (!user?.pubkey || !user?.signer) {
-      // Only update state if it needs to change to prevent infinite re-renders
+      // Only update state if it needs to change to prevent infinite re-renders  
       setPrivateEvents(prev => prev.length > 0 ? [] : prev);
       setLastUserPubkey(prev => prev !== null ? null : prev);
       return;
     }
 
-    // ✅ Wait for relay preferences to load before starting private event stream
-    if (isLoadingPreferences) {
-      return;
-    }
+    // Start immediately with default relays - don't wait for relay preferences
+    // Relay preferences will be used when available for optimization
 
     // Only clear events when user changes
     if (lastUserPubkey !== user.pubkey) {
@@ -74,13 +67,13 @@ export function usePrivateCalendarEvents() {
         };
 
 
-        // Use memoized read relays from user's 10050 preferences
+        // Use read relays if available, otherwise use default relays for immediate start
+        const relaysToUse = readRelays.length > 0 ? readRelays : undefined; // Let NostrProvider use defaults
 
-        // Start private events subscription
-
+        // Start private events subscription  
         const subscription = nostr.req([filter], { 
           signal: controller.signal,
-          relays: readRelays
+          relays: relaysToUse
         });
 
 
@@ -182,15 +175,15 @@ export function usePrivateCalendarEvents() {
       isMounted = false;
       controller.abort();
     };
-  }, [user?.pubkey, user?.signer, nostr, readRelays, lastUserPubkey, isLoadingPreferences, isUserLoading]);
+  }, [user?.pubkey, user?.signer, nostr, readRelays, lastUserPubkey]); // Removed loading dependencies for immediate start
 
   // Wrap in a query-like interface for compatibility
   const query = {
     data: privateEvents,
-    isLoading: isProcessing || isLoadingPreferences, // Include relay preferences loading
+    isLoading: isProcessing, // Removed relay preferences loading for immediate start
     error: null,
     isError: false,
-    isSuccess: !isProcessing && !isLoadingPreferences
+    isSuccess: !isProcessing
   };
 
   const createPrivateEvent = useMutation({

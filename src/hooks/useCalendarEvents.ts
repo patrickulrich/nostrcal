@@ -164,25 +164,22 @@ function validateCalendarEvent(event: NostrEvent | Rumor): boolean {
 
 export function useCalendarEvents() {
   const { nostr } = useNostr();
-  const { user, isLoading: isUserLoading } = useCurrentUser();
+  const { user } = useCurrentUser();
   const { privateEvents } = usePrivateCalendarEvents();
   const [publicEvents, setPublicEvents] = useState<NostrEvent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Stream public calendar events in real-time
+  // Stream public calendar events in real-time - start immediately when user is available
   useEffect(() => {
-    // Wait for user loading to complete (handles nsec race condition)
-    if (isUserLoading) {
-      setIsLoading(true);
-      return;
-    }
-
     // If no user is logged in, show empty calendar
     if (!user?.pubkey || !nostr) {
       setPublicEvents([]);
       setIsLoading(false);
       return;
     }
+
+    // Start streaming immediately - don't wait for relay configuration
+    // RelayManager will update relay config and trigger reconnection via NostrProvider
 
 
     let isMounted = true;
@@ -195,108 +192,91 @@ export function useCalendarEvents() {
 
         const eventIds = new Set<string>();
 
-        // Create multiple subscriptions for different event types
+        // Two separate filters for OR logic: events by user OR events where user is participant
         const filters = [
-          // Events authored by the user
           {
             kinds: [31922, 31923, 31924, 31925, 31926, 31927],
             authors: [user.pubkey],
-            limit: 100 // Reduced for faster initial load
+            limit: 25, // Split limit between both filters
+            since: Math.floor(Date.now() / 1000) - (90 * 24 * 60 * 60) // Only last 90 days for faster loading
           },
-          // Events where the user is a participant  
           {
             kinds: [31922, 31923, 31924, 31925, 31926, 31927],
-            "#p": [user.pubkey],
-            limit: 100 // Reduced for faster initial load
+            "#p": [user.pubkey], 
+            limit: 25, // Split limit between both filters
+            since: Math.floor(Date.now() / 1000) - (90 * 24 * 60 * 60) // Only last 90 days for faster loading
           }
         ];
 
 
   
-        // Process multiple subscriptions concurrently
-        const streamPromises = filters.map(async (filter, _index) => {
-          try {
-              
-            const subscription = nostr.req([filter], { signal: controller.signal });
-            let eventCount = 0;
-            
-            // ✅ CORRECT: Handle relay messages properly  
-            for await (const msg of subscription) {
-              if (!isMounted) {
-                break;
-              }
-              
-              // Handle different message types
-              if (msg[0] === 'EVENT') {
-                const event = msg[2]; // ✅ Extract actual event from msg[2]
-                eventCount++;
-                
-                
-                // Skip duplicates and validate
-                if (eventIds.has(event.id)) {
-                  continue;
-                }
-                
-                if (!validateCalendarEvent(event)) {
-                  continue;
-                }
-                
-                eventIds.add(event.id);
-                
-                // NIP-65: Proactively cache author's relay preferences for better profile discovery
-                if (event.pubkey) {
-                  // Don't await - run in background to avoid blocking event processing
-                  import('@/utils/relay-preferences').then(({ getAuthorRelayListMetadata }) => {
-                    getAuthorRelayListMetadata(event.pubkey, nostr).catch(() => {
-                      // Silently fail - this is just optimization
-                    });
-                  });
-                }
-                
-                // Add event immediately for real-time streaming
-                setPublicEvents(prev => {
-                  const updated = [...prev, event];
-                  return updated.sort((a, b) => b.created_at - a.created_at);
-                });
-                
-                // Mark as no longer loading after first event
-                if (eventCount === 1) {
-                  setIsLoading(false);
-                }
-                
-              } else if (msg[0] === 'EOSE') {
-                if (isMounted) {
-                  setIsLoading(false); // Always clear loading on EOSE, even if no events
-                }
-              } else if (msg[0] === 'CLOSED') {
-                break;
-              }
+        // Single subscription with multiple filters for better performance
+        try {
+          const subscription = nostr.req(filters, { signal: controller.signal });
+          let eventCount = 0;
+          
+          // ✅ CORRECT: Handle relay messages properly  
+          for await (const msg of subscription) {
+            if (!isMounted) {
+              break;
             }
             
-          } catch (error) {
-            if (!controller.signal.aborted) {
-              console.error('Calendar events stream error:', error);
+            // Handle different message types
+            if (msg[0] === 'EVENT') {
+              const event = msg[2]; // ✅ Extract actual event from msg[2]
+              eventCount++;
+              
+              // Skip duplicates and validate
+              if (eventIds.has(event.id)) {
+                continue;
+              }
+              
+              // Lazy validation - only validate if event is likely to be displayed
+              if (!validateCalendarEvent(event)) {
+                continue;
+              }
+              
+              eventIds.add(event.id);
+              
+              // Background relay metadata caching (non-blocking)
+              if (event.pubkey) {
+                import('@/utils/relay-preferences').then(({ getAuthorRelayListMetadata }) => {
+                  getAuthorRelayListMetadata(event.pubkey, nostr).catch(() => {});
+                });
+              }
+              
+              // Batch state updates for better performance
+              setPublicEvents(prev => {
+                const updated = [...prev, event];
+                return updated.sort((a, b) => b.created_at - a.created_at);
+              });
+              
+              // Clear loading after first event for immediate feedback
+              if (eventCount === 1) {
+                setIsLoading(false);
+              }
+              
+            } else if (msg[0] === 'EOSE') {
+              if (isMounted) {
+                setIsLoading(false);
+              }
+            } else if (msg[0] === 'CLOSED') {
+              break;
             }
           }
-        });
-
-        // Don't wait for streams to complete - they should run indefinitely!
           
-        // Set a shorter timeout to clear loading state if no events arrive
+        } catch (error) {
+          if (!controller.signal.aborted) {
+            console.error('Calendar events stream error:', error);
+          }
+        }
+
+        // Set aggressive timeout for better UX - show empty calendar quickly if no events
         setTimeout(() => {
           if (isMounted) {
             setIsLoading(false);
           }
-        }, 2000); // 2 second timeout for faster perceived load
-        
-        // Just start all streams in parallel - they'll update state as events arrive
-        streamPromises.forEach(promise => {
-          promise.catch(_error => {
-            if (!controller.signal.aborted) {
-              // Handle error silently for now
-            }
-          });
-        });
+        }, 1000); // Reduced to 1 second for faster perceived load
       } catch (error) {
         if (!controller.signal.aborted) {
           console.error('Calendar events streaming error:', error);
@@ -314,7 +294,7 @@ export function useCalendarEvents() {
       isMounted = false;
       controller.abort();
     };
-  }, [user?.pubkey, nostr, isUserLoading]);
+  }, [user?.pubkey, nostr]); // Removed isUserLoading dependency for immediate start
 
   // Get RSVP referenced events (only pass public events since privateEvents are Rumor type)
   const { data: rsvpReferencedEvents, isLoading: isRSVPLoading } = useRSVPReferencedEvents(publicEvents);

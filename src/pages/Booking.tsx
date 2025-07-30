@@ -29,6 +29,7 @@ import { createRumor, createGiftWrapsForRecipients, extractParticipants, publish
 import { getParticipantRelayPreferences } from '@/utils/relay-preferences';
 import { useZapVerification } from '@/hooks/useZapReceipts';
 import { LightningPayment } from '@/components/LightningPayment';
+import { extractRelayHintsFromEvent } from '@/utils/relay-hints';
 
 interface AvailabilityTemplate {
   id: string;
@@ -426,10 +427,18 @@ export default function Booking() {
         });
         
         const rsvpCoordinates = new Set<string>();
+        const relayHints = new Set<string>();
+        
         acceptedRSVPs.forEach(rsvp => {
           const coordinate = rsvp.tags.find(tag => tag[0] === 'a')?.[1];
           if (coordinate) {
             rsvpCoordinates.add(coordinate);
+          }
+          
+          // Extract relay hints from RSVP events
+          const hints = extractRelayHintsFromEvent(rsvp);
+          for (const hintList of hints.values()) {
+            hintList.forEach(hint => relayHints.add(hint));
           }
         });
         
@@ -453,8 +462,21 @@ export default function Booking() {
             // Use streaming approach instead of query() to handle missing EOSE
             const referencedEventsList: any[] = [];
             
+            // First try with relay hints if available
+            const relayHintArray = Array.from(relayHints);
+            
             for (const filter of filters) {
-              const subscription = nostr.req([filter], { signal: AbortSignal.timeout(5000) });
+              let subscription;
+              
+              // Try relay hints first if available
+              if (relayHintArray.length > 0) {
+                subscription = nostr.req([filter], { 
+                  signal: AbortSignal.timeout(5000),
+                  relays: relayHintArray
+                });
+              } else {
+                subscription = nostr.req([filter], { signal: AbortSignal.timeout(5000) });
+              }
               
               const eventCollection = new Promise<any[]>((resolve) => {
                 const events: any[] = [];

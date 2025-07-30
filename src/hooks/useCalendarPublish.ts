@@ -72,7 +72,7 @@ export function useCalendarPublish() {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
-  const { getRelaysForPublishing: _getRelaysForPublishing } = useNIP65RelayRouting();
+  const { getRelaysForPublishing: _getRelaysForPublishing, getRelaysForMentions } = useNIP65RelayRouting();
 
   return useMutation({
     mutationFn: async (eventData: CreateCalendarEventData) => {
@@ -119,19 +119,41 @@ export function useCalendarPublish() {
         });
       }
 
-      // Add participants with proper metadata per NIP-52
+      // Add participants with proper metadata per NIP-52 and relay hints per NIP-10
       if (eventData.participantsWithMetadata && eventData.participantsWithMetadata.length > 0) {
         // NIP-52 compliant participants with roles and relay URLs
-        eventData.participantsWithMetadata.forEach(participant => {
-          const relayUrl = participant.relayUrl || '';
+        for (const participant of eventData.participantsWithMetadata) {
+          // Get relay hint for this participant
+          let relayHint = participant.relayUrl || '';
+          
+          // If no relay hint provided, try to get from their relay list
+          if (!relayHint) {
+            try {
+              const participantRelays = await getRelaysForMentions([participant.pubkey]);
+              relayHint = participantRelays?.[0] || '';
+            } catch {
+              // Silently fail - relay hint is optional
+            }
+          }
+          
           const role = participant.role || 'participant';
-          tags.push(['p', participant.pubkey, relayUrl, role]);
-        });
+          tags.push(['p', participant.pubkey, relayHint, role]);
+        }
       } else if (eventData.participants) {
-        // Backwards compatibility - convert simple strings to full participant objects
-        eventData.participants.forEach(pubkey => {
-          tags.push(['p', pubkey, '', 'participant']);
-        });
+        // Backwards compatibility - convert simple strings to full participant objects with relay hints
+        for (const pubkey of eventData.participants) {
+          let relayHint = '';
+          
+          // Try to get relay hint for this participant
+          try {
+            const participantRelays = await getRelaysForMentions([pubkey]);
+            relayHint = participantRelays?.[0] || '';
+          } catch {
+            // Silently fail - relay hint is optional
+          }
+          
+          tags.push(['p', pubkey, relayHint, 'participant']);
+        }
       }
 
       // Add kind-specific tags
@@ -175,13 +197,14 @@ export function useCalendarPublish() {
       const signedEvent = await user.signer.signEvent(unsignedEvent);
       
       // NIP-65: Get optimal relays for publishing (includes mentioned users' read relays)
+      let publishRelays: string[] | undefined;
       try {
-        const _optimalRelays = await _getRelaysForPublishing(signedEvent);
+        publishRelays = await _getRelaysForPublishing(signedEvent);
       } catch (error) {
         console.warn('[NIP-65] Failed to get optimal relays, using default publishing:', error);
       }
       
-      const result = await nostr.event(signedEvent);
+      const result = await nostr.event(signedEvent, { relays: publishRelays });
       
       // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
@@ -196,6 +219,7 @@ export function useCreateAvailabilityTemplate() {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
+  const { getRelaysForPublishing: _getRelaysForPublishing } = useNIP65RelayRouting();
 
   return useMutation({
     mutationFn: async (templateData: CreateAvailabilityTemplateData) => {
@@ -286,7 +310,16 @@ export function useCreateAvailabilityTemplate() {
       };
 
       const signedEvent = await user.signer.signEvent(unsignedEvent);
-      const result = await nostr.event(signedEvent);
+      
+      // NIP-65: Get optimal relays for publishing
+      let publishRelays: string[] | undefined;
+      try {
+        publishRelays = await _getRelaysForPublishing(signedEvent);
+      } catch (error) {
+        console.warn('[NIP-65] Failed to get optimal relays, using default publishing:', error);
+      }
+      
+      const result = await nostr.event(signedEvent, { relays: publishRelays });
       
       queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
       
@@ -299,6 +332,7 @@ export function useCreateRSVP() {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
+  const { getRelaysForPublishing: _getRelaysForPublishing } = useNIP65RelayRouting();
 
   return useMutation({
     mutationFn: async (rsvpData: CreateRSVPData) => {
@@ -331,7 +365,16 @@ export function useCreateRSVP() {
       };
 
       const signedEvent = await user.signer.signEvent(unsignedEvent);
-      const result = await nostr.event(signedEvent);
+      
+      // NIP-65: Get optimal relays for publishing
+      let publishRelays: string[] | undefined;
+      try {
+        publishRelays = await _getRelaysForPublishing(signedEvent);
+      } catch (error) {
+        console.warn('[NIP-65] Failed to get optimal relays, using default publishing:', error);
+      }
+      
+      const result = await nostr.event(signedEvent, { relays: publishRelays });
       
       queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
       
@@ -344,6 +387,7 @@ export function useCreateCalendar() {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
+  const { getRelaysForPublishing: _getRelaysForPublishing } = useNIP65RelayRouting();
 
   return useMutation({
     mutationFn: async (calendarData: { name: string; description?: string; eventReferences?: string[] }) => {
@@ -373,7 +417,16 @@ export function useCreateCalendar() {
       };
 
       const signedEvent = await user.signer.signEvent(unsignedEvent);
-      const result = await nostr.event(signedEvent);
+      
+      // NIP-65: Get optimal relays for publishing
+      let publishRelays: string[] | undefined;
+      try {
+        publishRelays = await _getRelaysForPublishing(signedEvent);
+      } catch (error) {
+        console.warn('[NIP-65] Failed to get optimal relays, using default publishing:', error);
+      }
+      
+      const result = await nostr.event(signedEvent, { relays: publishRelays });
       
       queryClient.invalidateQueries({ queryKey: ['user-calendars'] });
       
@@ -386,6 +439,7 @@ export function useDeleteCalendarEvent() {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
+  const { getRelaysForPublishing: _getRelaysForPublishing } = useNIP65RelayRouting();
 
   return useMutation({
     mutationFn: async (eventId: string) => {
@@ -402,7 +456,16 @@ export function useDeleteCalendarEvent() {
       };
 
       const signedEvent = await user.signer.signEvent(unsignedEvent);
-      const result = await nostr.event(signedEvent);
+      
+      // NIP-65: Get optimal relays for publishing
+      let publishRelays: string[] | undefined;
+      try {
+        publishRelays = await _getRelaysForPublishing(signedEvent);
+      } catch (error) {
+        console.warn('[NIP-65] Failed to get optimal relays, using default publishing:', error);
+      }
+      
+      const result = await nostr.event(signedEvent, { relays: publishRelays });
       
       queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
       queryClient.invalidateQueries({ queryKey: ['user-calendars'] });

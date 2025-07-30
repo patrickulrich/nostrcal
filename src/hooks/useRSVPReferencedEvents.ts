@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNostr } from '@nostrify/react';
 import { NostrEvent } from '@nostrify/nostrify';
 import { useMemo } from 'react';
+import { extractRelayHintsFromEvent } from '@/utils/relay-hints';
 
 // Hook to fetch external events referenced by user's RSVPs
 export function useRSVPReferencedEvents(eventsInStream: NostrEvent[]) {
@@ -13,21 +14,28 @@ export function useRSVPReferencedEvents(eventsInStream: NostrEvent[]) {
     const rsvpEvents = eventsInStream.filter(event => event.kind === 31925);
     
     if (rsvpEvents.length === 0) {
-      return { coordinates: [], missingCoordinates: [] };
+      return { coordinates: [], missingCoordinates: [], relayHints: new Set<string>() };
     }
 
-    // Extract coordinates from RSVP events
+    // Extract coordinates and relay hints from RSVP events
     const eventCoordinates = new Set<string>();
+    const relayHints = new Set<string>();
     
     rsvpEvents.forEach(rsvp => {
       const coordinate = rsvp.tags.find(tag => tag[0] === 'a')?.[1];
       if (coordinate) {
         eventCoordinates.add(coordinate);
       }
+      
+      // Extract relay hints from the RSVP event
+      const hints = extractRelayHintsFromEvent(rsvp);
+      for (const hintList of hints.values()) {
+        hintList.forEach(hint => relayHints.add(hint));
+      }
     });
 
     if (eventCoordinates.size === 0) {
-      return { coordinates: [], missingCoordinates: [] };
+      return { coordinates: [], missingCoordinates: [], relayHints };
     }
 
     // Find which coordinates are missing from the stream
@@ -42,7 +50,7 @@ export function useRSVPReferencedEvents(eventsInStream: NostrEvent[]) {
       );
     });
 
-    return { coordinates: Array.from(eventCoordinates), missingCoordinates };
+    return { coordinates: Array.from(eventCoordinates), missingCoordinates, relayHints };
   }, [eventsInStream]);
 
   // Create a stable query key based on missing coordinates
@@ -74,7 +82,30 @@ export function useRSVPReferencedEvents(eventsInStream: NostrEvent[]) {
           };
         });
 
-        fetchedEvents = await nostr.query(filters, { signal });
+        // First try with relay hints if available
+        const relayHintArray = Array.from(rsvpAnalysis.relayHints);
+        if (relayHintArray.length > 0) {
+          try {
+            fetchedEvents = await nostr.query(filters, { 
+              signal, 
+              relays: relayHintArray 
+            });
+          } catch (hintError) {
+            console.warn('Failed to fetch from relay hints, trying default relays:', hintError);
+          }
+        }
+
+        // If we didn't get all events from hints, try default relays
+        if (fetchedEvents.length < rsvpAnalysis.missingCoordinates.length) {
+          const additionalEvents = await nostr.query(filters, { signal });
+          // Merge events, avoiding duplicates
+          const eventIds = new Set(fetchedEvents.map(e => e.id));
+          additionalEvents.forEach(event => {
+            if (!eventIds.has(event.id)) {
+              fetchedEvents.push(event);
+            }
+          });
+        }
       } catch (error) {
         if (!signal.aborted) {
           console.error('Error fetching RSVP referenced events:', error);
