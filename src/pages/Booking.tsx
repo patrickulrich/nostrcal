@@ -124,18 +124,13 @@ export default function Booking() {
         // Decode naddr
         const decoded = nip19.decode(naddr);
         
-        
-
-        // Remove artificial delays - let the query handle its own timing
-        
-        
         if (decoded.type !== 'naddr') {
           setError('Invalid booking link');
           setStep('error');
           return;
         }
 
-        const { kind, pubkey, identifier } = decoded.data;
+        const { kind, pubkey, identifier, relays } = decoded.data;
         
         
         if (kind !== 31926) {
@@ -155,7 +150,13 @@ export default function Booking() {
           limit: 1
         };
         
-        const subscription = nostr.req([templateFilter], { signal: AbortSignal.timeout(5000) });
+        // Use relay hints from naddr if available, otherwise use default relays
+        const templateQueryOptions: any = { signal: AbortSignal.timeout(5000) };
+        if (relays && relays.length > 0) {
+          templateQueryOptions.relays = relays;
+        }
+        
+        const subscription = nostr.req([templateFilter], templateQueryOptions);
         
         const events = await new Promise<any[]>((resolve, reject) => {
           const events: any[] = [];

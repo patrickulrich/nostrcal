@@ -142,23 +142,29 @@ export function useCalendarEventByNaddr(naddr: string) {
         throw new Error('Not an naddr identifier');
       }
 
-      const naddr_data = decoded.data;
+      const { kind, pubkey, identifier, relays } = decoded.data;
       
       // Check if it's a calendar event kind
-      if (![31922, 31923, 31924, 31925, 31926, 31927].includes(naddr_data.kind)) {
+      if (![31922, 31923, 31924, 31925, 31926, 31927].includes(kind)) {
         throw new Error('Not a calendar event');
       }
 
       const signal = AbortSignal.any([c.signal, AbortSignal.timeout(5000)]);
       
+      // Use relay hints from naddr if available
+      const queryOptions: any = { signal };
+      if (relays && relays.length > 0) {
+        queryOptions.relays = relays;
+      }
+      
       const events = await nostr.query([
         {
-          kinds: [naddr_data.kind],
-          authors: [naddr_data.pubkey],
-          '#d': [naddr_data.identifier],
+          kinds: [kind],
+          authors: [pubkey],
+          '#d': [identifier],
           limit: 1
         }
-      ], { signal });
+      ], queryOptions);
 
       if (events.length === 0) {
         throw new Error('Event not found');
