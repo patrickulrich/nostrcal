@@ -253,6 +253,7 @@ export default function Events() {
   const [rsvpStatus, setRsvpStatus] = useState<RSVPStatus | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
   const [eventNaddrs, setEventNaddrs] = useState<Record<string, string | null>>({});
+  const [lastLoadedCount, setLastLoadedCount] = useState(0);
   const existingRSVP = useRSVPStatus(selectedEvent?.id || '');
   
   // Get user's location for map centering
@@ -292,6 +293,13 @@ export default function Events() {
 
     generateNaddrs();
   }, [events, generateNaddrWithHints, eventNaddrs]);
+
+  // Track if we loaded new events but they were all filtered out
+  useEffect(() => {
+    if (events && events.length > lastLoadedCount) {
+      setLastLoadedCount(events.length);
+    }
+  }, [events, lastLoadedCount]);
 
   // Process events to extract hashtags and images
   const processedEvents = events?.map(event => {
@@ -600,26 +608,60 @@ export default function Events() {
               ))}
             </div>
             
-            {/* Load More Button */}
-            {hasMore && sortedEvents.length > 0 && (
-              <div className="mt-8 flex justify-center">
-                <Button
-                  onClick={loadMore}
-                  disabled={isLoadingMore}
-                  variant="outline"
-                  size="lg"
-                >
-                  {isLoadingMore ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Loading more events...
-                    </>
-                  ) : (
-                    'Load More Events'
+            {/* Load More Section */}
+            <div className="mt-8">
+              {/* Show current filter status */}
+              {(searchTerm || selectedTag || locationFilter !== 'all' || timeFilter !== 'all') && (
+                <div className="text-center mb-4">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {sortedEvents.length} of {processedEvents.length} events
+                    {filteredEvents.length < processedEvents.length && ' (filtered)'}
+                  </p>
+                  {hasMore && filteredEvents.length === 0 && processedEvents.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      No events match current filters. Try loading more or adjusting filters.
+                    </p>
                   )}
-                </Button>
-              </div>
-            )}
+                </div>
+              )}
+              
+              {/* Load More Button - show even if current page has no matching events */}
+              {hasMore && (processedEvents.length > 0 || isLoadingMore) && (
+                <div className="flex justify-center">
+                  <Button
+                    onClick={loadMore}
+                    disabled={isLoadingMore}
+                    variant="outline"
+                    size="lg"
+                  >
+                    {isLoadingMore ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Loading more events...
+                      </>
+                    ) : (
+                      <>
+                        Load More Events
+                        {processedEvents.length > 0 && (
+                          <span className="text-xs ml-2 opacity-70">
+                            ({processedEvents.length} total)
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+              
+              {/* No more events message */}
+              {!hasMore && processedEvents.length > 0 && (
+                <p className="text-sm text-muted-foreground text-center">
+                  {sortedEvents.length === 0 && processedEvents.length > 0 
+                    ? "All available events have been loaded. Try adjusting filters to see them."
+                    : "No more events available from the network"}
+                </p>
+              )}
+            </div>
           </>
         ) : (
           <div className="space-y-4">

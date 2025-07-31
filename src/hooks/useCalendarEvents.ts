@@ -640,6 +640,7 @@ export function usePublicCalendarEventsWithPagination() {
   const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [currentLimit, setCurrentLimit] = useState(200);
   
   // Initial load
   const { data: initialEvents, isLoading, error } = useQuery({
@@ -650,7 +651,7 @@ export function usePublicCalendarEventsWithPagination() {
       const events = await nostr.query([
         {
           kinds: [31922, 31923, 30313], // Public date, time events, and NIP-53 room meetings
-          limit: 100
+          limit: 200 // Increased to get more initial events
         }
       ], { signal });
 
@@ -683,8 +684,9 @@ export function usePublicCalendarEventsWithPagination() {
       });
       
       setAllEvents(sorted);
+      
       // Check if we got at least the limit from the query (before validation)
-      const hasMoreEvents = events.length >= 100;
+      const hasMoreEvents = events.length >= 200;
       setHasMore(hasMoreEvents);
       
       return sorted;
@@ -694,26 +696,25 @@ export function usePublicCalendarEventsWithPagination() {
   });
   
   const loadMore = async () => {
-    if (!hasMore || isLoadingMore || allEvents.length === 0) return;
+    if (!hasMore || isLoadingMore) return;
     
     setIsLoadingMore(true);
     
     try {
-      // Get the oldest event timestamp for pagination
-      const oldestEvent = allEvents[allEvents.length - 1];
-      const untilTimestamp = oldestEvent.kind === 31922
-        ? Math.floor(new Date(oldestEvent.start || '').getTime() / 1000)
-        : parseInt(oldestEvent.start || '0') || 0;
+      // Simple strategy: Just increase the limit
+      const newLimit = currentLimit + 200;
+      setCurrentLimit(newLimit);
       
-      const signal = AbortSignal.timeout(5000);
+      const signal = AbortSignal.timeout(8000); // Increased timeout for larger queries
       
       const events = await nostr.query([
         {
           kinds: [31922, 31923, 30313],
-          until: untilTimestamp - 1, // Get events before the oldest one we have
-          limit: 50
+          limit: newLimit
         }
       ], { signal });
+      
+      console.log(`Load More: Requested ${newLimit} events, got ${events.length} events`);
       
       const validEvents = events.filter(validateCalendarEvent);
       
@@ -731,30 +732,26 @@ export function usePublicCalendarEventsWithPagination() {
       
       const transformed = validEvents.map(transformEventForCalendar);
       
-      if (transformed.length === 0) {
+      // Sort all events by date
+      const sorted = transformed.sort((a, b) => {
+        const dateA = a.kind === 31922 
+          ? new Date(a.start || '').getTime() 
+          : (parseInt(a.start || '0') || 0) * 1000;
+        const dateB = b.kind === 31922 
+          ? new Date(b.start || '').getTime() 
+          : (parseInt(b.start || '0') || 0) * 1000;
+        return dateA - dateB;
+      });
+      
+      // Simply replace all events with the new larger set
+      setAllEvents(sorted);
+      
+      // If we got less than the requested limit, there are no more events
+      setHasMore(events.length >= newLimit);
+      
+      // Also stop if we've reached a very high limit
+      if (newLimit >= 1000) {
         setHasMore(false);
-      } else {
-        // Merge and deduplicate
-        const existingIds = new Set(allEvents.map(e => e.id));
-        const newEvents = transformed.filter(e => !existingIds.has(e.id));
-        
-        if (newEvents.length > 0) {
-          const merged = [...allEvents, ...newEvents].sort((a, b) => {
-            const dateA = a.kind === 31922 
-              ? new Date(a.start || '').getTime() 
-              : (parseInt(a.start || '0') || 0) * 1000;
-            const dateB = b.kind === 31922 
-              ? new Date(b.start || '').getTime() 
-              : (parseInt(b.start || '0') || 0) * 1000;
-            return dateA - dateB;
-          });
-          
-          setAllEvents(merged);
-          // Check original events length before filtering
-          setHasMore(events.length >= 50);
-        } else {
-          setHasMore(false);
-        }
       }
     } catch (err) {
       console.error('Error loading more events:', err);
