@@ -483,9 +483,8 @@ function WeekView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => void
     setSelectedEvent(null);
   };
 
-  const handleDeleteEvent = (event: CalendarEvent) => {
+  const handleDeleteEvent = (_event: CalendarEvent) => {
     // Event deletion is handled by the EventModal component
-    console.log('Delete event:', event);
     setSelectedEvent(null);
   };
 
@@ -652,9 +651,8 @@ function MonthView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => voi
     setSelectedEvent(null);
   };
 
-  const handleDeleteEvent = (event: CalendarEvent) => {
+  const handleDeleteEvent = (_event: CalendarEvent) => {
     // Event deletion is handled by the EventModal component
-    console.log('Delete event:', event);
     setSelectedEvent(null);
   };
 
@@ -781,9 +779,8 @@ function DayView({ onEditEvent }: { onEditEvent: (event: CalendarEvent) => void 
     setSelectedEvent(null);
   };
 
-  const handleDeleteEvent = (event: CalendarEvent) => {
+  const handleDeleteEvent = (_event: CalendarEvent) => {
     // Event deletion is handled by the EventModal component
-    console.log('Delete event:', event);
     setSelectedEvent(null);
   };
 
@@ -950,13 +947,16 @@ export default function EnhancedCalendarView() {
     if (categorizedEvents && eventsHash !== lastEventHash) {
       setLastEventHash(eventsHash);
       
-      eventsContext.setDayEvents(categorizedEvents.dayEvents);
-      eventsContext.setTimeEvents(categorizedEvents.timeEvents); // Time events only, no RSVPs
-      eventsContext.setRsvpEvents(categorizedEvents.allRsvpKind31925); // RSVPs go in their own category
-      eventsContext.setBookingBlocks([...categorizedEvents.availabilityBlocks, ...categorizedEvents.availabilityTemplates]); // Combine templates and blocks
-      eventsContext.setPrivateDayEvents(categorizedEvents.privateDayEvents);
-      eventsContext.setPrivateTimeEvents(categorizedEvents.privateTimeEvents);
-      eventsContext.setPrivateRsvps(categorizedEvents.privateRsvps);
+      // Use batched update to update all events at once
+      eventsContext.updateAllEvents({
+        dayEvents: categorizedEvents.dayEvents,
+        timeEvents: categorizedEvents.timeEvents,
+        allRsvpKind31925: categorizedEvents.allRsvpKind31925,
+        bookingBlocks: [...categorizedEvents.availabilityBlocks, ...categorizedEvents.availabilityTemplates],
+        privateDayEvents: categorizedEvents.privateDayEvents,
+        privateTimeEvents: categorizedEvents.privateTimeEvents,
+        privateRsvps: categorizedEvents.privateRsvps
+      });
     }
   }, [eventsHash, categorizedEvents, eventsContext, lastEventHash]);
 

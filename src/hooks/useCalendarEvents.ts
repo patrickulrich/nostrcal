@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNostr } from '@nostrify/react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -22,8 +22,8 @@ function transformEventForCalendar(event: NostrEvent | Rumor): CalendarEvent {
   
   const summary = event.tags.find(tag => tag[0] === 'summary')?.[1];
   const image = event.tags.find(tag => tag[0] === 'image')?.[1];
-  const start = event.tags.find(tag => tag[0] === 'start')?.[1];
-  const end = event.tags.find(tag => tag[0] === 'end')?.[1];
+  let start = event.tags.find(tag => tag[0] === 'start')?.[1];
+  let end = event.tags.find(tag => tag[0] === 'end')?.[1];
   const location = event.tags.find(tag => tag[0] === 'location')?.[1];
   const geohash = event.tags.find(tag => tag[0] === 'g')?.[1];
   const timezone = event.tags.find(tag => tag[0] === 'start_tzid')?.[1] || 
@@ -64,6 +64,44 @@ function transformEventForCalendar(event: NostrEvent | Rumor): CalendarEvent {
     };
   }
 
+  // Special handling for NIP-53 Room Meeting events (kind 30313)
+  let nip53Data: {
+    status?: string;
+    currentParticipants?: string;
+    totalParticipants?: string;
+    roomReference?: string;
+  } = {};
+
+  if (event.kind === 30313) {
+    // For room meetings, use 'starts' and 'ends' tags instead of 'start' and 'end'
+    const starts = event.tags.find(tag => tag[0] === 'starts')?.[1];
+    const ends = event.tags.find(tag => tag[0] === 'ends')?.[1];
+    
+    // Override the start/end with NIP-53 specific tags
+    if (starts) {
+      // Convert from unix timestamp to the format expected by our components
+      const startTime = parseInt(starts);
+      if (!isNaN(startTime)) {
+        start = startTime.toString(); // Store as string to match NIP-52 format
+      }
+    }
+    
+    if (ends) {
+      const endTime = parseInt(ends);
+      if (!isNaN(endTime)) {
+        end = endTime.toString();
+      }
+    }
+
+    // Extract NIP-53 specific fields
+    nip53Data = {
+      status: event.tags.find(tag => tag[0] === 'status')?.[1],
+      currentParticipants: event.tags.find(tag => tag[0] === 'current_participants')?.[1],
+      totalParticipants: event.tags.find(tag => tag[0] === 'total_participants')?.[1],
+      roomReference: event.tags.find(tag => tag[0] === 'a')?.[1]
+    };
+  }
+
   return {
     id: event.id,
     kind: event.kind,
@@ -87,14 +125,15 @@ function transformEventForCalendar(event: NostrEvent | Rumor): CalendarEvent {
     references,
     participants,
     ...rsvpData,
+    ...nip53Data,
     rawEvent: 'sig' in event ? event : undefined
   };
 }
 
-// Validate calendar event according to NIP-52
+// Validate calendar event according to NIP-52 and NIP-53
 function validateCalendarEvent(event: NostrEvent | Rumor): boolean {
-  // Check if it's a calendar event kind
-  if (![31922, 31923, 31924, 31925, 31926, 31927].includes(event.kind)) return false;
+  // Check if it's a calendar event kind (NIP-52) or room meeting kind (NIP-53)
+  if (![31922, 31923, 31924, 31925, 31926, 31927, 30313].includes(event.kind)) return false;
 
   // Check for required tags according to NIP-52
   const d = event.tags.find(([name]) => name === 'd')?.[1];
@@ -159,57 +198,162 @@ function validateCalendarEvent(event: NostrEvent | Rumor): boolean {
     if (isNaN(startTime) || isNaN(endTime) || startTime >= endTime) return false;
   }
 
+  // Room meetings (30313) require title, starts, and status per NIP-53
+  if (event.kind === 30313) {
+    const title = event.tags.find(([name]) => name === 'title')?.[1];
+    const starts = event.tags.find(([name]) => name === 'starts')?.[1];
+    const status = event.tags.find(([name]) => name === 'status')?.[1];
+    
+    if (!title || !starts || !status) return false;
+    
+    // Validate status is one of the allowed values
+    if (!['planned', 'live', 'ended'].includes(status)) return false;
+    
+    // Validate starts is a valid unix timestamp
+    const startTime = parseInt(starts);
+    if (isNaN(startTime) || startTime <= 0) return false;
+  }
+
   return true;
 }
 
 export function useCalendarEvents() {
   const { nostr } = useNostr();
-  const { user } = useCurrentUser();
+  const { user, isLoading: isUserLoading } = useCurrentUser();
   const { privateEvents } = usePrivateCalendarEvents();
   const [publicEvents, setPublicEvents] = useState<NostrEvent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [cacheError, setCacheError] = useState<string | null>(null);
+  const [usingCache, setUsingCache] = useState(false);
+  const isLoadingInProgressRef = useRef(false);
+  const publicEventsRef = useRef<NostrEvent[]>([]);
+  const cacheErrorRef = useRef<string | null>(null);
 
-  // Stream public calendar events in real-time - start immediately when user is available
+  // Keep refs in sync with state
+  publicEventsRef.current = publicEvents;
+  cacheErrorRef.current = cacheError;
+
+  // Load cached events first, then stream from relays
   useEffect(() => {
-    // If no user is logged in, show empty calendar
+    // Wait for authentication to complete before deciding what to do
+    if (isUserLoading) {
+      return;
+    }
+    
+    // Prevent multiple simultaneous loading operations
+    if (isLoadingInProgressRef.current) {
+      return;
+    }
+    
+    // If no user is logged in after auth completes, show empty calendar
     if (!user?.pubkey || !nostr) {
       setPublicEvents([]);
       setIsLoading(false);
+      setUsingCache(false);
+      setCacheError(null);
+      isLoadingInProgressRef.current = false;
       return;
-    }
-
-    // Start streaming immediately - don't wait for relay configuration
-    // RelayManager will update relay config and trigger reconnection via NostrProvider
-
+    };
 
     let isMounted = true;
     const controller = new AbortController();
 
-    const startStreaming = async () => {
+    const loadCachedEvents = async () => {
       try {
-        setIsLoading(true);
-        setPublicEvents([]);
+        // Load cached public events immediately - get all cached events for any kind we support
+        // We can't easily filter by "user participation" in IndexedDB, so we load all and filter in memory
+        const cached = await import('@/lib/indexeddb').then(({ getCachedPublicEvents }) => 
+          getCachedPublicEvents({
+            kinds: [31922, 31923, 31924, 31925, 31926, 31927, 30313],
+            // Don't filter by pubkeys here - we need all events to check participation
+          })
+        );
+
+        if (cached.length > 0 && isMounted) {
+          // Filter cached events to match original logic: events by user OR events where user is participant
+          const relevantCachedEvents = cached.filter(cachedEvent => {
+            const event = cachedEvent.raw_event;
+            // Events authored by user
+            if (event.pubkey === user.pubkey) return true;
+            // Events where user is participant (has 'p' tag with user's pubkey)
+            const participantTags = event.tags.filter(tag => tag[0] === 'p');
+            return participantTags.some(tag => tag[1] === user.pubkey);
+          });
+
+          if (relevantCachedEvents.length > 0) {
+            const cachedRawEvents = relevantCachedEvents.map(c => c.raw_event);
+            setPublicEvents(cachedRawEvents);
+            setUsingCache(true);
+            setIsLoading(false);
+            
+            return cachedRawEvents; // Return cached events directly
+          } else {
+            // No relevant cached events, proceed with normal loading
+            setUsingCache(false);
+            setIsLoading(true);
+            return null;
+          }
+        } else if (isMounted) {
+          // No cached events found, proceed with normal loading
+          setUsingCache(false);
+          setIsLoading(true);
+          return null;
+        }
+        return null;
+      } catch (error) {
+        console.warn('Failed to load cached events, falling back to relay-only:', error);
+        
+        // Check if it's a quota/storage issue
+        if (error instanceof Error && (
+          error.name === 'QuotaExceededError' || 
+          error.message.includes('quota') ||
+          error.message.includes('storage')
+        )) {
+          setCacheError('Storage quota exceeded. Consider clearing browser data or freeing up space.');
+        } else {
+          setCacheError('Cache unavailable. Using relay-only mode.');
+        }
+        
+        setUsingCache(false);
+        if (isMounted) {
+          setIsLoading(true); // Continue with normal relay loading
+        }
+        return null;
+      }
+    };
+
+    const startStreaming = async (cachedEvents: NostrEvent[] | null = null) => {
+      const hasCachedEvents = cachedEvents && cachedEvents.length > 0;
+      
+      try {
+        // Don't clear events if we have cached ones
+        if (!hasCachedEvents) {
+          setIsLoading(true);
+          setPublicEvents([]);
+        }
 
         const eventIds = new Set<string>();
+
+        // Track cached event IDs to avoid duplicates
+        const eventsToTrack = cachedEvents || [];
+        eventsToTrack.forEach(event => eventIds.add(event.id));
 
         // Two separate filters for OR logic: events by user OR events where user is participant
         const filters = [
           {
-            kinds: [31922, 31923, 31924, 31925, 31926, 31927],
+            kinds: [31922, 31923, 31924, 31925, 31926, 31927, 30313],
             authors: [user.pubkey],
             limit: 25, // Split limit between both filters
             since: Math.floor(Date.now() / 1000) - (90 * 24 * 60 * 60) // Only last 90 days for faster loading
           },
           {
-            kinds: [31922, 31923, 31924, 31925, 31926, 31927],
+            kinds: [31922, 31923, 31924, 31925, 31926, 31927, 30313],
             "#p": [user.pubkey], 
             limit: 25, // Split limit between both filters
             since: Math.floor(Date.now() / 1000) - (90 * 24 * 60 * 60) // Only last 90 days for faster loading
           }
         ];
 
-
-  
         // Single subscription with multiple filters for better performance
         try {
           const subscription = nostr.req(filters, { signal: controller.signal });
@@ -226,8 +370,17 @@ export function useCalendarEvents() {
               const event = msg[2]; // ✅ Extract actual event from msg[2]
               eventCount++;
               
-              // Skip duplicates and validate
+              // Handle duplicates - update last_seen for cached events
               if (eventIds.has(event.id)) {
+                // Update last_seen timestamp AND re-cache the event with latest data
+                try {
+                  const transformedEvent = transformEventForCalendar(event);
+                  import('@/lib/indexeddb').then(({ cachePublicEvent }) => {
+                    cachePublicEvent(event, transformedEvent).catch(() => {});
+                  });
+                } catch {
+                  // Silently fail - this is just optimization
+                }
                 continue;
               }
               
@@ -244,6 +397,32 @@ export function useCalendarEvents() {
                   getAuthorRelayListMetadata(event.pubkey, nostr).catch(() => {});
                 });
               }
+
+              // Cache new event in background (non-blocking)
+              if (!cacheErrorRef.current) { // Only try caching if cache is working
+                try {
+                  const transformedEvent = transformEventForCalendar(event);
+                  import('@/lib/indexeddb').then(({ cachePublicEvent }) => {
+                    cachePublicEvent(event, transformedEvent).catch(error => {
+                      console.warn('Failed to cache event:', error);
+                      
+                      // Set appropriate error message based on error type
+                      if (error instanceof Error && (
+                        error.name === 'QuotaExceededError' || 
+                        error.message.includes('quota') ||
+                        error.message.includes('storage')
+                      )) {
+                        setCacheError('Storage quota exceeded. Consider clearing browser data.');
+                      } else {
+                        setCacheError('Cache storage issue detected.');
+                      }
+                    });
+                  });
+                } catch (error) {
+                  // Don't block if caching fails
+                  console.warn('Failed to transform/cache event:', error);
+                }
+              }
               
               // Batch state updates for better performance
               setPublicEvents(prev => {
@@ -251,8 +430,8 @@ export function useCalendarEvents() {
                 return updated.sort((a, b) => b.created_at - a.created_at);
               });
               
-              // Clear loading after first event for immediate feedback
-              if (eventCount === 1) {
+              // Clear loading after first event for immediate feedback (unless using cache)
+              if (eventCount === 1 && !hasCachedEvents) {
                 setIsLoading(false);
               }
               
@@ -287,14 +466,52 @@ export function useCalendarEvents() {
       }
     };
 
-    startStreaming();
+    // Set loading flag to prevent multiple simultaneous operations
+    isLoadingInProgressRef.current = true;
+    
+    // Load cached events first, then start streaming
+    loadCachedEvents().then((cachedEvents) => {
+      if (isMounted) {
+        return startStreaming(cachedEvents);
+      }
+    }).catch(error => {
+      console.error('Error in loadCachedEvents:', error);
+      // Fallback to streaming without cache
+      if (isMounted) {
+        return startStreaming(null);
+      }
+    }).finally(() => {
+      // Clear loading flag when everything is complete
+      if (isMounted) {
+        isLoadingInProgressRef.current = false;
+      }
+    });
 
     // Cleanup
     return () => {
       isMounted = false;
       controller.abort();
+      isLoadingInProgressRef.current = false;
     };
-  }, [user?.pubkey, nostr]); // Removed isUserLoading dependency for immediate start
+  }, [user?.pubkey, nostr, isUserLoading]); // Include isUserLoading to wait for auth completion
+
+  // Background cache cleanup - run once on mount
+  useEffect(() => {
+    const cleanupCache = async () => {
+      try {
+        const { cleanupExpiredEvents } = await import('@/lib/indexeddb');
+        const result = await cleanupExpiredEvents();
+        if (result.deletedPublic > 0 || result.deletedPrivate > 0 || result.deletedRSVP > 0) {
+          // Cache cleanup completed silently
+        }
+      } catch (error) {
+        console.warn('Failed to cleanup expired cached events:', error);
+      }
+    };
+
+    // Run cleanup on mount (with delay to not block initial render)
+    setTimeout(cleanupCache, 5000);
+  }, []);
 
   // Get RSVP referenced events (only pass public events since privateEvents are Rumor type)
   const { data: rsvpReferencedEvents, isLoading: isRSVPLoading } = useRSVPReferencedEvents(publicEvents);
@@ -372,9 +589,11 @@ export function useCalendarEvents() {
   return {
     data: allEvents,
     isLoading: isLoading || isRSVPLoading, // Wait for both to complete
-    error: null,
-    isError: false,
-    isSuccess: !isLoading && !isRSVPLoading
+    error: cacheError,
+    isError: !!cacheError,
+    isSuccess: !isLoading && !isRSVPLoading,
+    usingCache,
+    cacheError
   };
 }
 
@@ -388,7 +607,7 @@ export function usePublicCalendarEvents() {
       
       const events = await nostr.query([
         {
-          kinds: [31922, 31923], // Only public date and time events
+          kinds: [31922, 31923, 30313], // Public date, time events, and NIP-53 room meetings
           limit: 100
         }
       ], { signal });
@@ -430,7 +649,7 @@ export function usePublicCalendarEventsWithPagination() {
       
       const events = await nostr.query([
         {
-          kinds: [31922, 31923], // Only public date and time events
+          kinds: [31922, 31923, 30313], // Public date, time events, and NIP-53 room meetings
           limit: 100
         }
       ], { signal });
@@ -490,7 +709,7 @@ export function usePublicCalendarEventsWithPagination() {
       
       const events = await nostr.query([
         {
-          kinds: [31922, 31923],
+          kinds: [31922, 31923, 30313],
           until: untilTimestamp - 1, // Get events before the oldest one we have
           limit: 50
         }

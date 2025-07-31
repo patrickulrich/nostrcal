@@ -62,23 +62,30 @@ function setupGlobalAuth() {
   };
 
   const handleAuth = (e: CustomEvent) => {
-    // Debounce rapid auth events
+    // Minimal debouncing to prevent excessive calls
     const now = Date.now();
-    if (now - lastAuthTimestamp < 100) return;
+    if (now - lastAuthTimestamp < 50) return;
     lastAuthTimestamp = now;
     
     if (e.detail.type === 'logout') {
       globalPubkey = undefined;
       globalIsLoading = false;
+      
+      // Clear all cached events on logout
+      import('@/lib/indexeddb').then(({ clearAllCachedEvents }) => {
+        clearAllCachedEvents().catch(error => {
+          console.warn('Failed to clear cached events on logout:', error);
+        });
+      });
+      
       notifySubscribers();
     } else if (e.detail.type === 'login' || e.detail.type === 'signup') {
       checkLogin();
     }
   };
 
-  // Don't check initial auth state to avoid interfering with bunker flows
-  globalIsLoading = false;
-  notifySubscribers();
+  // Check initial auth state immediately
+  checkLogin();
 
   // Listen for auth changes
   document.addEventListener('nlAuth', handleAuth as EventListener);

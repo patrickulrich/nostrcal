@@ -217,16 +217,14 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
     };
 
     const handleAuth = (_e: CustomEvent) => {
-      // Delay to allow nostr-login to fully initialize window.nostr
-      setTimeout(() => {
-        updateSigner();
-      }, 100);
+      // Update signer immediately when auth changes
+      updateSigner();
       // Reset all auth sessions on login change
       authSessionManager.reset();
     };
 
-    // Don't check initial state to avoid bunker conflicts
-    // Only update when we receive explicit auth events
+    // Check initial auth state immediately
+    updateSigner();
 
     // Listen for auth changes
     document.addEventListener('nlAuth', handleAuth as EventListener);

@@ -672,7 +672,7 @@ function DayView() {
 
 export default function CalendarView() {
   const { view } = useCalendar();
-  const { data: calendarEvents, isLoading, error } = useCalendarEvents();
+  const { data: calendarEvents, isLoading, error, usingCache, cacheError } = useCalendarEvents();
   const { user } = useCurrentUser();
 
   // Update events context when data loads
@@ -696,13 +696,16 @@ export default function CalendarView() {
       const privateRsvps = privateEvents.filter(event => event.kind === 31925 && event.rsvpStatus === 'accepted');
 
 
-      eventsContext.setDayEvents(dayEvents);
-      eventsContext.setTimeEvents(timeEvents);
-      eventsContext.setRsvpEvents(rsvpEvents);
-      eventsContext.setBookingBlocks(availabilityBlocks);
-      eventsContext.setPrivateDayEvents(privateDayEvents);
-      eventsContext.setPrivateTimeEvents(privateTimeEvents);
-      eventsContext.setPrivateRsvps(privateRsvps);
+      // Use batched update to update all events at once
+      eventsContext.updateAllEvents({
+        dayEvents,
+        timeEvents,
+        allRsvpKind31925: rsvpEvents,
+        bookingBlocks: availabilityBlocks,
+        privateDayEvents,
+        privateTimeEvents,
+        privateRsvps
+      });
     } else if (user && !isLoading) {
       // Add some mock events for testing when no events are loaded
       eventsContext.addMockEvents();
@@ -723,7 +726,9 @@ export default function CalendarView() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-muted-foreground">Loading calendar...</div>
+        <div className="text-muted-foreground">
+          {usingCache ? 'Loading fresh events...' : 'Loading calendar...'}
+        </div>
       </div>
     );
   }
@@ -735,18 +740,39 @@ export default function CalendarView() {
         <div className="text-sm text-muted-foreground mt-2">
           {String(error)}
         </div>
+        {cacheError && cacheError.includes('quota') && (
+          <div className="text-xs text-amber-600 mt-2 max-w-md text-center">
+            Consider clearing browser data to free up storage space, or contact support if the issue persists.
+          </div>
+        )}
       </div>
     );
   }
 
-  switch (view) {
-    case 'day':
-      return <DayView />;
-    case 'week':
-      return <WeekView />;
-    case 'month':
-      return <MonthView />;
-    default:
-      return <WeekView />;
-  }
+  // Show cache status notification (non-blocking)
+  const showCacheNotification = cacheError && !isLoading;
+
+  return (
+    <div className="relative h-full">
+      {showCacheNotification && (
+        <div className="absolute top-2 right-2 z-10 bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 rounded-md text-xs max-w-sm">
+          <div className="font-medium">Cache Issue</div>
+          <div>{cacheError}</div>
+        </div>
+      )}
+      
+      {(() => {
+        switch (view) {
+          case 'day':
+            return <DayView />;
+          case 'week':
+            return <WeekView />;
+          case 'month':
+            return <MonthView />;
+          default:
+            return <WeekView />;
+        }
+      })()}
+    </div>
+  );
 }

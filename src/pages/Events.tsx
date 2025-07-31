@@ -71,8 +71,26 @@ function EventCard({ event, onClick, isOnlineLocation }: EventCardProps) {
       } else {
         return `${format(start, 'MMM d')} - ${format(end, 'MMM d, yyyy')}`;
       }
+    } else if (event.kind === 30313) {
+      // NIP-53 Room Meeting event
+      if (!event.start) return 'No time';
+      const start = new Date(parseInt(event.start) * 1000);
+      const startFormatted = format(start, 'EEE, MMM d • h:mm a');
+      
+      if (event.end) {
+        const end = new Date(parseInt(event.end) * 1000);
+        // If same day, only show end time
+        if (format(start, 'yyyy-MM-dd') === format(end, 'yyyy-MM-dd')) {
+          return `${startFormatted} - ${format(end, 'h:mm a')}`;
+        } else {
+          // Different days, show full end date/time
+          return `${startFormatted} - ${format(end, 'MMM d, h:mm a')}`;
+        }
+      }
+      
+      return startFormatted;
     } else {
-      // Time-based event
+      // Time-based event (31923)
       if (!event.start) return 'No time';
       const start = new Date(parseInt(event.start) * 1000);
       const startFormatted = format(start, 'EEE, MMM d • h:mm a');
@@ -100,6 +118,33 @@ function EventCard({ event, onClick, isOnlineLocation }: EventCardProps) {
     return isAfter(eventDate, new Date());
   };
 
+  // Helper function to get status badge for NIP-53 events
+  const getStatusBadge = () => {
+    if (event.kind === 30313 && event.status) {
+      const statusColors = {
+        planned: 'bg-blue-100 text-blue-800',
+        live: 'bg-green-100 text-green-800 animate-pulse',
+        ended: 'bg-gray-100 text-gray-800'
+      };
+      
+      return (
+        <Badge className={`ml-2 shrink-0 ${statusColors[event.status as keyof typeof statusColors] || statusColors.planned}`}>
+          {event.status === 'live' ? '🔴 Live' : event.status}
+        </Badge>
+      );
+    }
+    
+    if (isUpcoming()) {
+      return (
+        <Badge variant="default" className="ml-2 shrink-0">
+          Upcoming
+        </Badge>
+      );
+    }
+    
+    return null;
+  };
+
   return (
     <Card 
       className="cursor-pointer hover:shadow-lg transition-shadow"
@@ -119,11 +164,7 @@ function EventCard({ event, onClick, isOnlineLocation }: EventCardProps) {
           <CardTitle className="text-lg line-clamp-2">
             {event.title || 'Untitled Event'}
           </CardTitle>
-          {isUpcoming() && (
-            <Badge variant="default" className="ml-2 shrink-0">
-              Upcoming
-            </Badge>
-          )}
+          {getStatusBadge()}
         </div>
         <CardDescription className="text-sm">
           {formatEventTime()}
@@ -159,6 +200,13 @@ function EventCard({ event, onClick, isOnlineLocation }: EventCardProps) {
                 eventId={event.id}
                 eventCoordinate={`${event.kind}:${event.pubkey}:${event.dTag}`}
               />
+            )}
+            {event.kind === 30313 && (event.currentParticipants || event.totalParticipants) && (
+              <span className="text-xs text-muted-foreground ml-2">
+                {event.currentParticipants ? `${event.currentParticipants} online` : ''}
+                {event.currentParticipants && event.totalParticipants && ' • '}
+                {event.totalParticipants ? `${event.totalParticipants} total` : ''}
+              </span>
             )}
           </div>
         </div>
@@ -260,6 +308,8 @@ export default function Events() {
     };
   }) || [];
 
+
+
   // Extract all unique tags
   const allTags = Array.from(new Set(
     processedEvents.flatMap(event => event.hashtags || [])
@@ -325,6 +375,11 @@ export default function Events() {
           if (!isAfter(eventDate, now) || !isBefore(eventDate, addDays(now, 7))) return false;
           break;
         case 'upcoming':
+          // For NIP-53 events, also consider 'live' status as upcoming
+          if (event.kind === 30313 && event.status === 'live') {
+            // Live events are considered upcoming
+            break;
+          }
           if (!isAfter(eventDate, now)) return false;
           break;
       }
@@ -333,7 +388,7 @@ export default function Events() {
     return true;
   });
 
-  // Sort events (those with images first, then by date)
+  // Sort events (images first, then by date)
   const sortedEvents = [...filteredEvents].sort((a, b) => {
     // Prioritize events with images
     if (a.image && !b.image) return -1;
@@ -432,6 +487,7 @@ export default function Events() {
             </ToggleGroupItem>
           </ToggleGroup>
         </div>
+
 
         {/* Filters */}
         <div className="space-y-4">
@@ -754,6 +810,69 @@ export default function Events() {
                           ) : (
                             selectedEvent.start ? format(new Date(selectedEvent.start), 'EEEE, MMMM d, yyyy') : 'No date'
                           )
+                        ) : selectedEvent.kind === 30313 ? (
+                          // NIP-53 Room Meeting event
+                          selectedEvent.start ? (
+                            <>
+                              {(() => {
+                                const startDate = new Date(parseInt(selectedEvent.start) * 1000);
+                                const endDate = selectedEvent.end ? new Date(parseInt(selectedEvent.end) * 1000) : null;
+                                const isSameDay = endDate && format(startDate, 'yyyy-MM-dd') === format(endDate, 'yyyy-MM-dd');
+                                
+                                if (!endDate) {
+                                  // No end time
+                                  return (
+                                    <>
+                                      {format(startDate, 'EEEE, MMMM d, yyyy')}
+                                      <br />
+                                      <span className="font-medium">
+                                        {format(startDate, 'h:mm a')}
+                                      </span>
+                                      {selectedEvent.status && (
+                                        <Badge className={`ml-2 ${selectedEvent.status === 'live' ? 'bg-green-100 text-green-800' : selectedEvent.status === 'ended' ? 'bg-gray-100 text-gray-800' : 'bg-blue-100 text-blue-800'}`}>
+                                          {selectedEvent.status === 'live' ? '🔴 Live' : selectedEvent.status}
+                                        </Badge>
+                                      )}
+                                    </>
+                                  );
+                                } else if (isSameDay) {
+                                  // Same day event
+                                  return (
+                                    <>
+                                      {format(startDate, 'EEEE, MMMM d, yyyy')}
+                                      <br />
+                                      <span className="font-medium">
+                                        {format(startDate, 'h:mm a')} - {format(endDate, 'h:mm a')}
+                                      </span>
+                                      {selectedEvent.status && (
+                                        <Badge className={`ml-2 ${selectedEvent.status === 'live' ? 'bg-green-100 text-green-800' : selectedEvent.status === 'ended' ? 'bg-gray-100 text-gray-800' : 'bg-blue-100 text-blue-800'}`}>
+                                          {selectedEvent.status === 'live' ? '🔴 Live' : selectedEvent.status}
+                                        </Badge>
+                                      )}
+                                    </>
+                                  );
+                                } else {
+                                  // Multi-day event
+                                  return (
+                                    <>
+                                      <div className="font-medium">
+                                        {format(startDate, 'EEEE, MMMM d, yyyy • h:mm a')}
+                                      </div>
+                                      <div className="text-muted-foreground">to</div>
+                                      <div className="font-medium">
+                                        {format(endDate, 'EEEE, MMMM d, yyyy • h:mm a')}
+                                      </div>
+                                      {selectedEvent.status && (
+                                        <Badge className={`ml-2 ${selectedEvent.status === 'live' ? 'bg-green-100 text-green-800' : selectedEvent.status === 'ended' ? 'bg-gray-100 text-gray-800' : 'bg-blue-100 text-blue-800'}`}>
+                                          {selectedEvent.status === 'live' ? '🔴 Live' : selectedEvent.status}
+                                        </Badge>
+                                      )}
+                                    </>
+                                  );
+                                }
+                              })()}
+                            </>
+                          ) : 'No time'
                         ) : (
                           // Time-based event
                           selectedEvent.start ? (
@@ -830,6 +949,21 @@ export default function Events() {
                             #{tag}
                           </Badge>
                         ))}
+                      </div>
+                    )}
+
+                    {/* NIP-53 Room Meeting participant info */}
+                    {selectedEvent.kind === 30313 && (selectedEvent.currentParticipants || selectedEvent.totalParticipants) && (
+                      <div className="pt-2 border-t">
+                        <h4 className="text-sm font-medium mb-2">Participants</h4>
+                        <div className="flex gap-4 text-sm text-muted-foreground">
+                          {selectedEvent.currentParticipants && (
+                            <span>🟢 {selectedEvent.currentParticipants} currently online</span>
+                          )}
+                          {selectedEvent.totalParticipants && (
+                            <span>👥 {selectedEvent.totalParticipants} total registered</span>
+                          )}
+                        </div>
                       </div>
                     )}
 

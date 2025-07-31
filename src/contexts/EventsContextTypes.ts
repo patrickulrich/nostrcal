@@ -32,6 +32,12 @@ export interface CalendarEvent {
   referenceCoordinate?: string;
   rsvpStatus?: string;
   
+  // NIP-53 Room Meeting specific properties
+  status?: string; // 'planned' | 'live' | 'ended'
+  currentParticipants?: string;
+  totalParticipants?: string;
+  roomReference?: string; // 'a' tag referencing the room (kind 30312)
+  
   // UI properties
   color?: string;
   source?: string;
@@ -53,6 +59,16 @@ export interface EventFilters {
   privateDayEvents: boolean;
   privateTimeEvents: boolean;
   privateRsvps: boolean;
+}
+
+export interface CategorizedEvents {
+  dayEvents: CalendarEvent[];
+  timeEvents: CalendarEvent[];
+  allRsvpKind31925: CalendarEvent[];
+  bookingBlocks: CalendarEvent[];
+  privateDayEvents: CalendarEvent[];
+  privateTimeEvents: CalendarEvent[];
+  privateRsvps: CalendarEvent[];
 }
 
 export interface EventsContextValue {
@@ -81,6 +97,9 @@ export interface EventsContextValue {
   setPrivateTimeEvents: (events: CalendarEvent[]) => void;
   setPrivateRsvps: (events: CalendarEvent[]) => void;
   setCalendars: (calendars: UserCalendar[]) => void;
+  
+  // Batched update method
+  updateAllEvents: (categorizedEvents: CategorizedEvents) => void;
   
   // Methods
   toggleEventFilter: (filterType: keyof EventFilters) => void;

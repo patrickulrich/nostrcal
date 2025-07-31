@@ -50,7 +50,6 @@ export function useNIP65EventQuery({
           if (authorRelays.size > 0) {
             // Use author's write relays + configured relays for redundancy
             relaysToQuery = [...new Set([...authorRelays, ...(config.relayUrls || [])])];
-            console.log(`[NIP-65] Querying ${filter.authors.length} authors on ${relaysToQuery.length} relays`);
           }
         }
 
@@ -81,7 +80,6 @@ export function useNIP65EventQuery({
       }
 
       const result = Array.from(uniqueEvents.values());
-      console.log(`[NIP-65] Query complete: ${result.length} unique events from ${queriedRelays.size} relays`);
       return result;
     },
     enabled: enabled && !!nostr,

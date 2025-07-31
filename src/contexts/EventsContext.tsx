@@ -1,5 +1,5 @@
-import { useState, useEffect, ReactNode } from 'react';
-import { CalendarEvent, UserCalendar, EventFilters, EventsContextValue } from './EventsContextTypes';
+import { useState, useEffect, ReactNode, useCallback } from 'react';
+import { CalendarEvent, UserCalendar, EventFilters, EventsContextValue, CategorizedEvents } from './EventsContextTypes';
 import { EventsContext } from './EventsContextInstance';
 
 interface EventsProviderProps {
@@ -195,6 +195,18 @@ export function EventsProvider({ children }: EventsProviderProps) {
     setDayEvents(mockDayEvents);
   };
 
+  // Batched update method to update all events at once
+  const updateAllEvents = useCallback((categorizedEvents: CategorizedEvents) => {
+    // Update all event states in a single render cycle
+    setDayEvents(categorizedEvents.dayEvents);
+    setTimeEvents(categorizedEvents.timeEvents);
+    setRsvpEvents(categorizedEvents.allRsvpKind31925);
+    setBookingBlocks(categorizedEvents.bookingBlocks);
+    setPrivateDayEvents(categorizedEvents.privateDayEvents);
+    setPrivateTimeEvents(categorizedEvents.privateTimeEvents);
+    setPrivateRsvps(categorizedEvents.privateRsvps);
+  }, []);
+
   // Initialize visible calendars when calendars change
   useEffect(() => {
     const allCalendarIds = new Set(calendars.map(cal => cal.id));
@@ -220,6 +232,7 @@ export function EventsProvider({ children }: EventsProviderProps) {
     setPrivateTimeEvents,
     setPrivateRsvps,
     setCalendars,
+    updateAllEvents,
     toggleEventFilter,
     toggleCalendarVisibility,
     getFilteredEvents,

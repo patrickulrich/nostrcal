@@ -60,6 +60,39 @@ export function usePrivateCalendarEvents() {
       try {
         setIsProcessing(true);
 
+        // First, load cached private events
+        try {
+          const cachedEvents = await import('@/lib/indexeddb').then(({ getCachedPrivateEvents }) => 
+            getCachedPrivateEvents(user.pubkey)
+          );
+          
+          // Decrypt cached events and add to state
+          for (const cachedEvent of cachedEvents) {
+            try {
+              // Decrypt the cached wrapper event (same as from relay)
+              const rumor = await unwrapPrivateEventWithSigner(cachedEvent.wrapper_event, user.signer!);
+              
+              if (rumor && isCalendarRumor(rumor) && isMounted) {
+                setPrivateEvents(prev => {
+                  // Avoid duplicates
+                  if (prev.some(existing => existing.id === rumor.id)) {
+                    return prev;
+                  }
+                  return [...prev, rumor].sort((a, b) => b.created_at - a.created_at);
+                });
+              }
+            } catch (error) {
+              console.warn('[PrivateEvents] Failed to decrypt cached event:', error);
+            }
+          }
+          
+          if (cachedEvents.length > 0) {
+            setIsProcessing(false); // Show cached events immediately
+          }
+        } catch (error) {
+          console.warn('[PrivateEvents] Failed to load cached events:', error);
+        }
+
         const filter = {
           kinds: [1059], // Gift wrapped events
           "#p": [user.pubkey], // Tagged for this user
@@ -124,19 +157,26 @@ export function usePrivateCalendarEvents() {
                     return [...prev, rumor].sort((a, b) => b.created_at - a.created_at);
                   });
                   
+                  // Cache the encrypted wrapper event (non-blocking)
+                  try {
+                    import('@/lib/indexeddb').then(({ cachePrivateEvent }) => {
+                      // Store the kind 1059 wrapper event - we'll decrypt it again when loading from cache
+                      cachePrivateEvent(rumor.id, event.content, event, user.pubkey).catch(error => {
+                        console.warn('[PrivateEvents] Failed to cache private event:', error);
+                      });
+                    });
+                  } catch (error) {
+                    // Don't block if caching fails
+                    console.warn('[PrivateEvents] Failed to cache private event:', error);
+                  }
+                  
                   // Mark as no longer loading after first decrypted event
                   if (decryptedCount === 1) {
                     setIsProcessing(false);
                   }
                 }
-              } catch (error) {
-                console.log('[PrivateEvents] Decryption failed for event:', { 
-                  eventId: event.id, 
-                  error: error instanceof Error ? error.message : 'Unknown error',
-                  timestamp: Date.now()
-                });
-                console.error('User signer has nip44:', !!user.signer?.nip44);
-                console.error('Event details:', {kind: event.kind, pubkey: event.pubkey});
+              } catch {
+                // Silently handle decryption failures
               }
             })();
             
