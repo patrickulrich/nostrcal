@@ -80,7 +80,14 @@ function setupGlobalAuth() {
       
       notifySubscribers();
     } else if (e.detail.type === 'login' || e.detail.type === 'signup') {
-      checkLogin();
+      // For bunker connections, add a delay to allow window.nostr to initialize
+      if (e.detail?.method === 'connect' || e.detail?.authMethod === 'connect') {
+        setTimeout(() => {
+          checkLogin();
+        }, 200);
+      } else {
+        checkLogin();
+      }
     }
   };
 

@@ -216,11 +216,18 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
       }
     };
 
-    const handleAuth = (_e: CustomEvent) => {
-      // Update signer immediately when auth changes
-      updateSigner();
-      // Reset all auth sessions on login change
-      authSessionManager.reset();
+    const handleAuth = (e: CustomEvent) => {
+      // For bunker connections, add a small delay to allow window.nostr to initialize
+      if (e.detail?.method === 'connect' || e.detail?.authMethod === 'connect') {
+        setTimeout(() => {
+          updateSigner();
+          authSessionManager.reset();
+        }, 200);
+      } else {
+        // Update signer immediately for other auth methods
+        updateSigner();
+        authSessionManager.reset();
+      }
     };
 
     // Check initial auth state immediately
